@@ -1,8 +1,9 @@
 # Xray_Script
 
 windows 部署 Xray 的脚本：`xray-win-airport.ps1`
+linux 部署 Xray 的脚本：`xray-linux-airport.sh`
 
-## 一键安装
+## Windows 一键安装
 
 在目标 Windows 服务器上，用管理员 PowerShell 执行：
 
@@ -17,7 +18,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm "https://github.com/owokit
 - 创建开机自启的计划任务（SYSTEM 身份）  
 - 在安装目录下生成 `config.json`、日志目录和 `links.txt`（内含订阅链接）
 
-## 参数说明
+## Windows 参数说明
 
 脚本支持通过 `iex "& { $(irm ...) } -Param ..."` 的形式传参，例如：
 
@@ -67,6 +68,61 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -Uninstall -BaseDir 'D:\xray'"
+```
+
+## Linux 一键安装
+
+在目标 Linux 服务器（Ubuntu / CentOS 等，需使用 systemd）上，推荐直接执行：
+
+```bash
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh -o xray-linux-airport.sh
+chmod +x xray-linux-airport.sh
+sudo ./xray-linux-airport.sh
+```
+
+脚本会自动：
+- 检测并要求以 root / sudo 运行
+- 检测并在需要时自动安装依赖：`curl`、`unzip`（支持 `apt-get` / `yum` / `dnf`）
+- 下载并解压 Xray-core（XTLS/Xray-core，linux-64）
+- 生成 VLESS + Reality 主节点和 VMess mKCP 备用节点配置
+- 在 `BaseDir`（默认 `/opt/xray`）下生成 `config.json`、`log` 目录和 `links.txt`
+- 使用 systemd 创建并启用 `xray-server` 服务，自动开机自启
+
+### Linux 参数说明（与 Windows 版对应）
+
+支持通过命令行参数或环境变量传参，常用参数：
+
+- `--reality-port`（对应 `-RealityPort`）  
+  VLESS+Reality TCP 端口。未指定时自动随机选择空闲端口。
+
+- `--vmess-kcp-port`（对应 `-VmessKcpPort`）  
+  VMess mKCP UDP 端口。未指定时随机选择空闲 UDP 端口。
+
+- `--uuid`（对应 `-UUID`）  
+  客户端 ID。未指定时自动生成 UUID，并在所有入站上复用。
+
+- `--core-version`（对应 `-CoreVersion`）  
+  指定 Xray-core 版本，例如：`v25.9.5` 或 `25.9.5`。不指定时默认下载最新版本。
+
+- `--proxy`（对应 `-Proxy`）  
+  下载 Xray-core 时使用的上游代理，例如：`http://127.0.0.1:1080` 或 `socks5://127.0.0.1:1080`。
+
+- `--reality-dest` / `--reality-server-name`（对应 `-RealityDest` / `-RealityServerName`）  
+  Reality 的伪装目标与 SNI，默认：`cloudflare.com:443` / `cloudflare.com`。
+
+- `--reality-short-id`（对应 `-RealityShortId`）  
+  Reality 的 shortId（十六进制字符串，长度 2~16）。未指定时脚本自动生成 8 位 hex。
+
+- `--base-dir`（对应 `-BaseDir`，默认 `/opt/xray`）  
+  安装目录，包含：`bin/xray`、`config.json`、`log` 目录和 `links.txt`。
+
+- `--uninstall`（对应 `-Uninstall`）  
+  卸载模式：停止 systemd 服务、删除 service 文件并清理 `BaseDir`。
+
+**示例：卸载并清理安装目录**（需和当初安装时的 `--base-dir` 保持一致）：
+
+```bash
+sudo ./xray-linux-airport.sh --uninstall --base-dir /opt/xray
 ```
 
 ## Reality Dest / SNI 选择建议

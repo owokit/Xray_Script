@@ -85,11 +85,11 @@ if ($Uninstall) {
             try {
                 schtasks.exe /Delete /TN $TaskName /F > $null 2>&1
             } catch {}
-            Write-Info "Scheduled task $TaskName removed (if it existed)."
+            Write-Info "Scheduled task ${TaskName} removed (if it existed)."
         }
     }
     catch {
-        Write-Warn "Failed to remove scheduled task $TaskName: $($_.Exception.Message)"
+        Write-Warn "Failed to remove scheduled task ${TaskName}: $($_.Exception.Message)"
     }
 
     try {
@@ -128,7 +128,7 @@ if ($Uninstall) {
         }
     }
     catch {
-        Write-Warn "Failed to remove base directory $BaseDir: $($_.Exception.Message)"
+        Write-Warn "Failed to remove base directory ${BaseDir}: $($_.Exception.Message)"
     }
 
     Write-Host ""
@@ -497,7 +497,7 @@ try {
     }
 }
 catch {
-    Write-Warn "Failed to create TCP firewall rule for port $RealityPort: $($_.Exception.Message). Please open this port manually if needed."
+    Write-Warn "Failed to create TCP firewall rule for port ${RealityPort}: $($_.Exception.Message). Please open this port manually if needed."
 }
 
 try {
@@ -511,7 +511,7 @@ try {
     }
 }
 catch {
-    Write-Warn "Failed to create UDP firewall rule for port $VmessKcpPort: $($_.Exception.Message). Please open this port manually if needed."
+    Write-Warn "Failed to create UDP firewall rule for port ${VmessKcpPort}: $($_.Exception.Message). Please open this port manually if needed."
 }
 
 #########################

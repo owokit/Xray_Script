@@ -1,7 +1,8 @@
 param(
     # Optional: manually specify ports. If not set, random free ports will be used.
+    [ValidateRange(1,65535)]
     [int]$RealityPort,
-    [int]$VmessTcpPort,
+    [ValidateRange(1,65535)]
     [int]$VmessKcpPort,  # UDP
 
     # Optional: UUID. If not set, a random UUID will be generated and shared by all inbounds.
@@ -17,7 +18,13 @@ param(
     [string]$RealityDest = "cloudflare.com:443",
     [string]$RealityServerName = "cloudflare.com",
     # Reality shortId (hex, length 2~16). If empty, generate 8 hex chars.
-    [string]$RealityShortId
+    [string]$RealityShortId,
+
+    # Base directory for installation
+    [string]$BaseDir = "$($env:SystemDrive)\xray",
+
+    # Uninstall mode: stop Xray, remove task, firewall rules and files
+    [switch]$Uninstall
 )
 
 #########################
@@ -62,6 +69,71 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 if ($PSVersionTable.PSVersion.Major -lt 5) {
     Write-Err "PowerShell 5.0 or later is required. Current version: $($PSVersionTable.PSVersion)"
     exit 1
+}
+
+if ($Uninstall) {
+    Write-Info "Uninstall mode detected. Stopping Xray and cleaning up..."
+
+    $TaskName = "XrayServer"
+
+    try {
+        $schtasksCmd = Get-Command -Name "schtasks.exe" -ErrorAction SilentlyContinue
+        if ($schtasksCmd) {
+            try {
+                schtasks.exe /End /TN $TaskName /F > $null 2>&1
+            } catch {}
+            try {
+                schtasks.exe /Delete /TN $TaskName /F > $null 2>&1
+            } catch {}
+            Write-Info "Scheduled task $TaskName removed (if it existed)."
+        }
+    }
+    catch {
+        Write-Warn "Failed to remove scheduled task $TaskName: $($_.Exception.Message)"
+    }
+
+    try {
+        $xrayProc = Get-Process xray -ErrorAction SilentlyContinue
+        if ($xrayProc) {
+            $xrayProc | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Info "Stopped running xray processes."
+        }
+    }
+    catch {
+        Write-Warn "Failed to stop xray process: $($_.Exception.Message)"
+    }
+
+    try {
+        $fwCmd = Get-Command -Name "Get-NetFirewallRule" -ErrorAction SilentlyContinue
+        if ($fwCmd) {
+            $patterns = @("Xray_TCP_Reality_*","Xray_TCP_VMess_*","Xray_UDP_VMessKCP_*")
+            foreach ($pattern in $patterns) {
+                Get-NetFirewallRule -DisplayName $pattern -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+            }
+            Write-Info "Firewall rules for Xray removed (if they existed)."
+        } else {
+            Write-Warn "Get-NetFirewallRule is not available. Please remove Xray_* firewall rules manually if needed."
+        }
+    }
+    catch {
+        Write-Warn "Failed to remove firewall rules: $($_.Exception.Message)"
+    }
+
+    try {
+        if (Test-Path $BaseDir) {
+            Remove-Item -Path $BaseDir -Recurse -Force
+            Write-Info "Removed directory: $BaseDir"
+        } else {
+            Write-Info "Base directory not found: $BaseDir"
+        }
+    }
+    catch {
+        Write-Warn "Failed to remove base directory $BaseDir: $($_.Exception.Message)"
+    }
+
+    Write-Host ""
+    Write-Host "Xray has been uninstalled." -ForegroundColor Green
+    exit 0
 }
 
 if (-not (Get-Command -Name "Invoke-WebRequest" -ErrorAction SilentlyContinue)) {
@@ -173,15 +245,10 @@ if (-not $UUID) {
 
 # Assign ports and avoid collisions
 $RealityPort  = Ensure-Port -Port $RealityPort  -Protocol "TCP"
-$VmessTcpPort = Ensure-Port -Port $VmessTcpPort -Protocol "TCP"
-if ($VmessTcpPort -eq $RealityPort) {
-    $VmessTcpPort = Ensure-Port -Port $null -Protocol "TCP"
-    Write-Warn "VMess TCP port equals Reality port, changed VMess TCP port to: $VmessTcpPort"
-}
 $VmessKcpPort = Ensure-Port -Port $VmessKcpPort -Protocol "UDP"
-if (($VmessKcpPort -eq $VmessTcpPort) -or ($VmessKcpPort -eq $RealityPort)) {
+if ($VmessKcpPort -eq $RealityPort) {
     $VmessKcpPort = Ensure-Port -Port $null -Protocol "UDP"
-    Write-Warn "VMess KCP port conflicts, changed to: $VmessKcpPort"
+    Write-Warn "VMess KCP port conflicts with Reality port, changed to: $VmessKcpPort"
 }
 
 # Reality shortId
@@ -196,7 +263,6 @@ if (-not $RealityShortId) {
 # Directories and paths
 #########################
 
-$BaseDir    = "C:\xray"
 $CoreBinDir = Join-Path $BaseDir "bin"
 $LogDir     = Join-Path $BaseDir "log"
 $ConfigPath = Join-Path $BaseDir "config.json"
@@ -361,26 +427,7 @@ $config = @{
             }
             tag = "in-vless-reality"
         },
-        # 2) VMess TCP (backup)
-        @{
-            port     = $VmessTcpPort
-            listen   = "0.0.0.0"
-            protocol = "vmess"
-            settings = @{
-                clients = @(
-                    @{
-                        id      = $UUID
-                        alterId = 0
-                        level   = 0
-                    }
-                )
-            }
-            streamSettings = @{
-                network = "tcp"
-            }
-            tag = "in-vmess-tcp"
-        },
-        # 3) VMess mKCP + wechat-video (backup)
+        # 2) VMess mKCP + wechat-video (fallback)
         @{
             port     = $VmessKcpPort
             listen   = "0.0.0.0"
@@ -440,21 +487,17 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 #########################
 
 try {
-    Write-Info "Opening TCP ports: $RealityPort, $VmessTcpPort"
+    Write-Info "Opening TCP port: $RealityPort"
     $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
     if ($fwCmd) {
         New-NetFirewallRule -DisplayName "Xray_TCP_Reality_$RealityPort" `
             -Direction Inbound -Protocol TCP -LocalPort $RealityPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
-
-        New-NetFirewallRule -DisplayName "Xray_TCP_VMess_$VmessTcpPort" `
-            -Direction Inbound -Protocol TCP -LocalPort $VmessTcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
     } else {
         & netsh advfirewall firewall add rule name="Xray_TCP_Reality_$RealityPort" dir=in action=allow protocol=TCP localport=$RealityPort | Out-Null
-        & netsh advfirewall firewall add rule name="Xray_TCP_VMess_$VmessTcpPort" dir=in action=allow protocol=TCP localport=$VmessTcpPort | Out-Null
     }
 }
 catch {
-    Write-Warn "Failed to create TCP firewall rules. Please open ports $RealityPort and $VmessTcpPort manually if needed."
+    Write-Warn "Failed to create TCP firewall rule for port $RealityPort: $($_.Exception.Message). Please open this port manually if needed."
 }
 
 try {
@@ -468,7 +511,7 @@ try {
     }
 }
 catch {
-    Write-Warn "Failed to create UDP firewall rule. Please open UDP port $VmessKcpPort manually if needed."
+    Write-Warn "Failed to create UDP firewall rule for port $VmessKcpPort: $($_.Exception.Message). Please open this port manually if needed."
 }
 
 #########################
@@ -487,11 +530,11 @@ catch {
 
 if ($schtasksCmd) {
     try {
-        schtasks.exe /Delete /TN $TaskName /F | Out-Null 2>&1
+        schtasks.exe /Delete /TN $TaskName /F > $null 2>&1
     } catch {}
 
-    $taskExe  = "C:\xray\bin\xray.exe"
-    $taskArgs = "run -config C:\xray\config.json"
+    $taskExe  = $CoreExe
+    $taskArgs = "run -config `"$ConfigPath`""
 
     $createArgs = @(
         '/Create',
@@ -527,7 +570,7 @@ $xrayProc = Get-Process xray -ErrorAction SilentlyContinue
 if ($xrayProc) {
     Write-Info "Xray process is running (PID: $($xrayProc.Id))."
 } else {
-    Write-Warn "Xray process is not detected after start. Please check C:\xray\log\error.log for details."
+    Write-Warn "Xray process is not detected after start. Please check $LogDir\error.log for details."
 }
 
 #########################
@@ -627,20 +670,7 @@ if ($vlessUrl) {
 }
 
 Write-Host ""
-Write-Host "[2] VMess TCP (backup)" -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
-Write-Host ("  {0,-11} {1}" -f "Port:", $VmessTcpPort)
-Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
-Write-Host ("  {0,-11} {1}" -f "Transport:", "tcp (no TLS, no WS)")
-
-$vmessTcpUrl = New-VmessUrl -Address $ip -Port $VmessTcpPort -Uuid $UUID -Network "tcp" -HeaderType "none" -Name "xray.owokit.com-VMess-TCP"
-if ($vmessTcpUrl) {
-    Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
-    Write-Host $vmessTcpUrl -ForegroundColor Yellow
-}
-
-Write-Host ""
-Write-Host "[3] VMess mKCP + wechat-video (backup)" -ForegroundColor Green
+Write-Host "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)" -ForegroundColor Green
 Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
 Write-Host ("  {0,-11} {1}" -f "Port(UDP):", $VmessKcpPort)
 Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
@@ -657,7 +687,6 @@ $linksFile = Join-Path $BaseDir "links.txt"
 try {
     $links = @()
     if ($vlessUrl)    { $links += $vlessUrl }
-    if ($vmessTcpUrl) { $links += $vmessTcpUrl }
     if ($vmessKcpUrl) { $links += $vmessKcpUrl }
     if ($links.Count -gt 0) {
         $links | Set-Content -Path $linksFile -Encoding UTF8

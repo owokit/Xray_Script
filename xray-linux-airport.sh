@@ -49,9 +49,21 @@ done
 # Helper functions
 #################################
 
-log_info()  { echo "[$(date '+%F %T')] [INFO ] $*"; }
-log_warn()  { echo "[$(date '+%F %T')] [WARN ] $*" >&2; }
-log_error() { echo "[$(date '+%F %T')] [ERROR] $*" >&2; }
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  COLOR_INFO="\033[36m"
+  COLOR_WARN="\033[33m"
+  COLOR_ERROR="\033[31m"
+  COLOR_RESET="\033[0m"
+else
+  COLOR_INFO=""
+  COLOR_WARN=""
+  COLOR_ERROR=""
+  COLOR_RESET=""
+fi
+
+log_info()  { printf "%b\n" "${COLOR_INFO}[$(date '+%F %T')] [INFO ] $*${COLOR_RESET}" >&2; }
+log_warn()  { printf "%b\n" "${COLOR_WARN}[$(date '+%F %T')] [WARN ] $*${COLOR_RESET}" >&2; }
+log_error() { printf "%b\n" "${COLOR_ERROR}[$(date '+%F %T')] [ERROR] $*${COLOR_RESET}" >&2; }
 
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then

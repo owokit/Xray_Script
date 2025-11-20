@@ -72,17 +72,15 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github
 
 ## Linux 一键安装
 
-在目标 Linux 服务器（Ubuntu / CentOS 等，需使用 systemd）上，推荐直接执行：
+在目标 Linux 服务器（Ubuntu / CentOS 等，需使用 systemd）上，推荐直接执行下面这一行命令：
 
 ```bash
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh -o xray-linux-airport.sh
-chmod +x xray-linux-airport.sh
-sudo ./xray-linux-airport.sh
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash
 ```
 
 脚本会自动：
 - 检测并要求以 root / sudo 运行
-- 检测并在需要时自动安装依赖：`curl`、`unzip`（支持 `apt-get` / `yum` / `dnf`）
+- 检测并在需要时自动安装依赖：`curl`、`unzip`（支持 `apt-get` / `yum` / `dnf`)
 - 下载并解压 Xray-core（XTLS/Xray-core，linux-64）
 - 生成 VLESS + Reality 主节点和 VMess mKCP 备用节点配置
 - 在 `BaseDir`（默认 `/opt/xray`）下生成 `config.json`、`log` 目录和 `links.txt`

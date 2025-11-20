@@ -80,6 +80,36 @@ else
   COLOR_SUM_URL=""
 fi
 
+XRAY_LANG_DETECTED=""
+
+detect_lang() {
+  if [[ -n "${XRAY_LANG:-}" ]]; then
+    case "${XRAY_LANG,,}" in
+      zh*) XRAY_LANG_DETECTED="zh"; return ;;
+      en*) XRAY_LANG_DETECTED="en"; return ;;
+      *)   XRAY_LANG_DETECTED="en"; return ;;
+    esac
+  fi
+
+  local lc="${LC_ALL:-${LANG:-}}"
+  if [[ "$lc" == zh_* || "$lc" == zh-* ]]; then
+    XRAY_LANG_DETECTED="zh"
+  else
+    XRAY_LANG_DETECTED="en"
+  fi
+}
+
+t() {
+  local zh="$1" en="$2"
+  if [[ "${XRAY_LANG_DETECTED:-en}" == "zh" ]]; then
+    printf "%s" "$zh"
+  else
+    printf "%s" "$en"
+  fi
+}
+
+detect_lang
+
 log_info()  { printf "%b\n" "${COLOR_INFO}[$(date '+%F %T')] [INFO ] $*${COLOR_RESET}" >&2; }
 log_warn()  { printf "%b\n" "${COLOR_WARN}[$(date '+%F %T')] [WARN ] $*${COLOR_RESET}" >&2; }
 log_error() { printf "%b\n" "${COLOR_ERROR}[$(date '+%F %T')] [ERROR] $*${COLOR_RESET}" >&2; }
@@ -612,7 +642,7 @@ if command -v curl >/dev/null 2>&1; then
   public_ip="$(curl -s https://api.ipify.org)" || true
 fi
 if [[ -z "$public_ip" ]]; then
-  public_ip="(public IP unknown, please check yourself)"
+  public_ip="$(t "（公网 IP 未知，请自行检查）" "(public IP unknown, please check yourself)")"
 fi
 
 vless_name="xray.owokit.com-VLESS-Reality"
@@ -655,37 +685,37 @@ vmess_url="vmess://${vmess_b64}"
   echo "VMESS_KCP_PORT=${VMESS_KCP_PORT}"
 } >"$PORTS_FILE"
 chmod 600 "$PORTS_FILE"
-log_info "Port info has been saved to: $PORTS_FILE"
+log_info "$(t "端口信息已保存到: $PORTS_FILE" "Port info has been saved to: $PORTS_FILE")"
 
-log_info "All URLs have been saved to: $LINKS_FILE"
+log_info "$(t "所有链接已保存到: $LINKS_FILE" "All URLs have been saved to: $LINKS_FILE")"
 
-printf "\n%s================= Xray server deployed (Linux) =================%s\n" "${COLOR_SUM_TITLE}" "${COLOR_RESET}"
-printf "%sServer public IP: %s%s\n\n" "${COLOR_SUM_TITLE}" "${public_ip}" "${COLOR_RESET}"
+printf "\n%s%s%s\n" "${COLOR_SUM_TITLE}" "$(t "================= Xray 服务器部署完成（Linux） =================" "================= Xray server deployed (Linux) =================")" "${COLOR_RESET}"
+printf "%s%s%s%s\n\n" "${COLOR_SUM_TITLE}" "$(t "服务器公网 IP: " "Server public IP: ")" "${public_ip}" "${COLOR_RESET}"
 
-printf "%s[1] VLESS Reality (main node)%s\n" "${COLOR_SUM_SECTION}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Address:" "${public_ip}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Port:" "${REALITY_PORT}" "${COLOR_RESET}"
+printf "%s%s%s\n" "${COLOR_SUM_SECTION}" "$(t "[1] VLESS Reality（主节点）" "[1] VLESS Reality (main node)")" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口:" "Port:")" "${REALITY_PORT}" "${COLOR_RESET}"
 printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Flow:" "xtls-rprx-vision" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Dest:" "${REALITY_DEST}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "流控:" "Flow:")" "xtls-rprx-vision" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "目标站:" "Dest:")" "${REALITY_DEST}" "${COLOR_RESET}"
 printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "SNI:" "${REALITY_SERVER_NAME}" "${COLOR_RESET}"
 printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "shortId:" "${REALITY_SHORT_ID}" "${COLOR_RESET}"
-printf "%s  %-11s%s\n" "${COLOR_SUM_LABEL}" "publicKey:" "${COLOR_RESET}"
+printf "%s  %-11s%s\n" "${COLOR_SUM_LABEL}" "$(t "公钥:" "publicKey:")" "${COLOR_RESET}"
 printf "%s    %s%s\n" "${COLOR_SUM_HIGHLIGHT}" "${reality_pub}" "${COLOR_RESET}"
-printf "%s  URL: %s" "${COLOR_SUM_LABEL}" "${COLOR_RESET}"
+printf "%s  %s" "${COLOR_SUM_LABEL}" "${COLOR_RESET}"
 printf "%s%s%s\n" "${COLOR_SUM_URL}" "${vless_url}" "${COLOR_RESET}"
 
-printf "\n%s[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)%s\n" "${COLOR_SUM_SECTION}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Address:" "${public_ip}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Port(UDP):" "${VMESS_KCP_PORT}" "${COLOR_RESET}"
+printf "\n%s%s%s\n" "${COLOR_SUM_SECTION}" "$(t "[2] VMess mKCP + wechat-video（备用，仅在 TCP/Reality 不可用时尝试；注意部分运营商/网络可能限制 UDP）" "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)")" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口(UDP):" "Port(UDP):")" "${VMESS_KCP_PORT}" "${COLOR_RESET}"
 printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Transport:" "kcp" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Header:" "wechat-video" "${COLOR_RESET}"
-printf "%s  URL: %s" "${COLOR_SUM_LABEL}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "传输:" "Transport:")" "kcp" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "伪装头:" "Header:")" "wechat-video" "${COLOR_RESET}"
+printf "%s  %s" "${COLOR_SUM_LABEL}" "${COLOR_RESET}"
 printf "%s%s%s\n" "${COLOR_SUM_URL}" "${vmess_url}" "${COLOR_RESET}"
 
-printf "\n%slinks file:   %s%s\n" "${COLOR_SUM_LABEL}" "${LINKS_FILE}" "${COLOR_RESET}"
-printf "%sconfig file:  %s%s\n" "${COLOR_SUM_LABEL}" "${CONFIG_PATH}" "${COLOR_RESET}"
-printf "%slog dir:      %s%s\n" "${COLOR_SUM_LABEL}" "${LOG_DIR}" "${COLOR_RESET}"
-printf "%sservice:      %s (systemd)%s\n" "${COLOR_SUM_LABEL}" "${SERVICE_NAME}" "${COLOR_RESET}"
-printf "%s========================================================%s\n" "${COLOR_SUM_TITLE}" "${COLOR_RESET}"
+printf "\n%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "链接文件:   ${LINKS_FILE}" "links file:   ${LINKS_FILE}")" "${COLOR_RESET}"
+printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "配置文件:  ${CONFIG_PATH}" "config file:  ${CONFIG_PATH}")" "${COLOR_RESET}"
+printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "日志目录:      ${LOG_DIR}" "log dir:      ${LOG_DIR}")" "${COLOR_RESET}"
+printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "服务:        ${SERVICE_NAME} (systemd)" "service:      ${SERVICE_NAME} (systemd)")" "${COLOR_RESET}"
+printf "%s%s%s\n" "${COLOR_SUM_TITLE}" "$(t "========================================================" "========================================================")" "${COLOR_RESET}"

@@ -32,6 +32,49 @@ param(
 
 $UpdateCoreOnly = $false
 
+$Script:XrayLang = "en"
+
+function Initialize-Language {
+    try {
+        if ($env:XRAY_LANG) {
+            $lang = $env:XRAY_LANG.ToLower()
+            if ($lang.StartsWith("zh")) {
+                $Script:XrayLang = "zh"
+                return
+            } else {
+                $Script:XrayLang = "en"
+                return
+            }
+        }
+    } catch {
+    }
+
+    try {
+        $uiLang = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName
+        if ($uiLang -eq "zh") {
+            $Script:XrayLang = "zh"
+        } else {
+            $Script:XrayLang = "en"
+        }
+    } catch {
+        $Script:XrayLang = "en"
+    }
+}
+
+Initialize-Language
+
+function T {
+    param(
+        [string]$zh,
+        [string]$en
+    )
+    if ($Script:XrayLang -eq "zh") {
+        return $zh
+    } else {
+        return $en
+    }
+}
+
 #########################
 # Basic helper functions
 #########################
@@ -713,41 +756,41 @@ try {
 catch {
     $ip = $null
 }
-if (-not $ip) { $ip = "(public IP unknown, please check yourself)" }
+if (-not $ip) { $ip = T "（公网 IP 未知，请自行检查）" "(public IP unknown, please check yourself)" }
 
 Write-Host ""
-Write-Host "================= Xray server deployed =================" -ForegroundColor Cyan
-Write-Host ("Server public IP: {0}" -f $ip) -ForegroundColor Cyan
+Write-Host (T "================= Xray 服务器部署完成 =================" "================= Xray server deployed =================") -ForegroundColor Cyan
+Write-Host (T ("服务器公网 IP: {0}" -f $ip) ("Server public IP: {0}" -f $ip)) -ForegroundColor Cyan
 
 Write-Host ""
-Write-Host "[1] VLESS Reality (main node)" -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f "Address:", $ip) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "Port:", $RealityPort) -ForegroundColor Gray
+Write-Host (T "[1] VLESS Reality（主节点）" "[1] VLESS Reality (main node)") -ForegroundColor Green
+Write-Host ("  {0,-11} {1}" -f (T "地址:" "Address:"), $ip) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f (T "端口:" "Port:"), $RealityPort) -ForegroundColor Gray
 Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "Flow:", "xtls-rprx-vision") -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "Dest:", $RealityDest) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f (T "流控:" "Flow:"), "xtls-rprx-vision") -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f (T "目标站:" "Dest:"), $RealityDest) -ForegroundColor Gray
 Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName) -ForegroundColor Gray
 Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId) -ForegroundColor Gray
-Write-Host ("  {0,-11}" -f "publicKey:") -ForegroundColor Gray
+Write-Host ("  {0,-11}" -f (T "公钥:" "publicKey:")) -ForegroundColor Gray
 Write-Host "    $RealityPublicKey" -ForegroundColor Magenta
 
 $vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
 if ($vlessUrl) {
-    Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
+    Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
     Write-Host $vlessUrl -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)" -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f "Address:", $ip) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "Port(UDP):", $VmessKcpPort) -ForegroundColor Gray
+Write-Host (T "[2] VMess mKCP + wechat-video（备用，仅在 TCP/Reality 不可用时尝试；注意部分运营商/网络可能限制 UDP）" "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)") -ForegroundColor Green
+Write-Host ("  {0,-11} {1}" -f (T "地址:" "Address:"), $ip) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f (T "端口(UDP):" "Port(UDP):"), $VmessKcpPort) -ForegroundColor Gray
 Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "Transport:", "kcp") -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "Header:", "wechat-video") -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f (T "传输:" "Transport:"), "kcp") -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f (T "伪装头:" "Header:"), "wechat-video") -ForegroundColor Gray
 
 $vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
 if ($vmessKcpUrl) {
-    Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
+    Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
     Write-Host $vmessKcpUrl -ForegroundColor Yellow
 }
 
@@ -758,17 +801,17 @@ try {
     if ($vmessKcpUrl) { $links += $vmessKcpUrl }
     if ($links.Count -gt 0) {
         $links | Set-Content -Path $linksFile -Encoding UTF8
-        Write-Host "All URLs have been saved to: $linksFile" -ForegroundColor Green
+        Write-Host (T "所有链接已保存到: $linksFile" "All URLs have been saved to: $linksFile") -ForegroundColor Green
     }
 }
 catch {
-    Write-Warn "Failed to save URLs to file: $($_.Exception.Message)"
+    Write-Warn (T "保存链接到文件失败: $($_.Exception.Message)" "Failed to save URLs to file: $($_.Exception.Message)")
 }
 
 Write-Host ""
-Write-Host "Tip: When copying the URLs in plain text, make sure there are no line breaks and that the full link stays on a single line." -ForegroundColor Red
+Write-Host (T "提示：复制订阅链接时请确保一整行完整复制，不要包含换行符。" "Tip: When copying the URLs in plain text, make sure there are no line breaks and that the full link stays on a single line.") -ForegroundColor Red
 Write-Host ""
-Write-Host "Config file: $ConfigPath" -ForegroundColor Gray
-Write-Host "Log dir:     $LogDir" -ForegroundColor Gray
-Write-Host "Scheduled task: $TaskName (auto start at boot as SYSTEM)" -ForegroundColor Gray
-Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host (T "配置文件: $ConfigPath" "Config file: $ConfigPath") -ForegroundColor Gray
+Write-Host (T "日志目录: $LogDir" "Log dir:     $LogDir") -ForegroundColor Gray
+Write-Host (T "计划任务: $TaskName（开机自动以 SYSTEM 运行）" "Scheduled task: $TaskName (auto start at boot as SYSTEM)") -ForegroundColor Gray
+Write-Host (T "========================================================" "========================================================") -ForegroundColor Cyan

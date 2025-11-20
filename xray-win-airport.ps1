@@ -21,11 +21,16 @@ param(
     [string]$RealityShortId,
 
     # Base directory for installation
-    [string]$BaseDir = "$($env:SystemDrive)\xray",
+    [string]$BaseDir = "$( $env:SystemDrive)\xray",
+
+    [switch]$KeepConfig,
+    [switch]$ForceRebuildConfig,
 
     # Uninstall mode: stop Xray, remove task, firewall rules and files
     [switch]$Uninstall
 )
+
+$UpdateCoreOnly = $false
 
 #########################
 # Basic helper functions
@@ -47,6 +52,41 @@ function Write-Err {
     param($msg)
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "[$ts] [ERROR] $msg" -ForegroundColor Red
+}
+
+function Test-SafeBaseDir {
+    param([string]$Path)
+
+    if (-not $Path) {
+        Write-Err "BaseDir is empty. Please specify a directory such as C:\xray."
+        exit 1
+    }
+
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+    }
+    catch {
+        Write-Err ("BaseDir '{0}' is not a valid path: {1}" -f $Path, $_.Exception.Message)
+        exit 1
+    }
+
+    if ($full -match '^[A-Za-z]:\\$') {
+        Write-Err ("Refusing to use drive root '{0}' as BaseDir. Please use a subdirectory such as C:\xray." -f $full)
+        exit 1
+    }
+
+    $trimmed = $full.TrimEnd('\\')
+    $segments = $trimmed -split '\\'
+    if ($segments.Length -gt 0) {
+        $leaf = $segments[-1]
+        $badNames = @("Windows","Program Files","Program Files (x86)","Users")
+        foreach ($name in $badNames) {
+            if ($leaf.Equals($name, [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Err ("Refusing to use potentially critical system directory '{0}' as BaseDir. Please use a dedicated directory such as C:\xray." -f $full)
+                exit 1
+            }
+        }
+    }
 }
 
 #########################
@@ -72,6 +112,7 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 }
 
 if ($Uninstall) {
+    Test-SafeBaseDir -Path $BaseDir
     Write-Info "Uninstall mode detected. Stopping Xray and cleaning up..."
 
     $TaskName = "XrayServer"
@@ -276,6 +317,27 @@ $CoreExeName  = "xray.exe"
 $CoreZipPath  = Join-Path $BaseDir $CoreFileName
 $CoreExe      = Join-Path $CoreBinDir $CoreExeName
 
+Test-SafeBaseDir -Path $BaseDir
+
+if (Test-Path $ConfigPath) {
+    if ($KeepConfig -and $ForceRebuildConfig) {
+        Write-Err "Both -KeepConfig and -ForceRebuildConfig were specified. Please choose only one."
+        exit 1
+    } elseif ($KeepConfig) {
+        $UpdateCoreOnly = $true
+        Write-Info "Existing config detected at $ConfigPath. -KeepConfig is set: will only update Xray core and keep existing config, firewall rules and scheduled task."
+    } elseif ($ForceRebuildConfig) {
+        Write-Warn "Existing config at $ConfigPath will be overwritten because -ForceRebuildConfig is set."
+    } else {
+        Write-Err "Config file already exists at $ConfigPath. Use -KeepConfig to reuse it or -ForceRebuildConfig to overwrite it."
+        exit 1
+    }
+} else {
+    if ($KeepConfig) {
+        Write-Warn "-KeepConfig was specified but no existing config was found at $ConfigPath. A fresh config will be created."
+    }
+}
+
 Write-Info "Base directory: $BaseDir"
 New-Item -ItemType Directory -Path $BaseDir -Force | Out-Null
 New-Item -ItemType Directory -Path $CoreBinDir -Force | Out-Null
@@ -342,6 +404,12 @@ catch {
 if (-not (Test-Path $CoreExe)) {
     Write-Err "xray.exe not found after extraction."
     exit 1
+}
+
+if ($UpdateCoreOnly) {
+    Write-Info "Core update-only mode: existing config at $ConfigPath was kept. Firewall rules and scheduled task were not modified."
+    Write-Info "To apply the new core, please restart the existing scheduled task or service. For example, reboot the system or run: schtasks.exe /Run /TN $TaskName"
+    exit 0
 }
 
 #########################

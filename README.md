@@ -57,6 +57,14 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github
   - `log` 日志目录  
   - `links.txt`（包含生成的 VLESS/VMess 链接）
 
+  出于安全原因，脚本会拒绝使用驱动器根目录（如 `C:\`）、`Windows`、`Program Files`、`Users` 等系统目录作为 `BaseDir`，必须使用类似 `C:\xray` 这样的专用子目录。
+
+- **`-KeepConfig`**（开关）  
+  如果目标目录下已存在 `config.json`，只更新 Xray-core 可执行文件，**不修改现有配置、计划任务和防火墙规则**。推荐用于“更新核心版本”。
+
+- **`-ForceRebuildConfig`**（开关）  
+  即使目标目录中已存在 `config.json`，也会强制覆盖为新的默认配置（UUID、端口等会重新生成）。与 `-KeepConfig` 互斥。
+
 - **`-Uninstall`**（开关）  
   卸载模式：
   - 尝试停止正在运行的 `xray` 进程  
@@ -68,6 +76,14 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -Uninstall -BaseDir 'D:\xray'"
+```
+
+### Windows 更新 Xray-core（保留配置）
+
+如果只是更新 Xray-core 版本，且希望**保留现有 `config.json` / 计划任务 / 防火墙规则**，可以在原来的 `BaseDir` 上加 `-KeepConfig`：
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -BaseDir 'D:\xray' -KeepConfig -CoreVersion 'v25.9.5'"
 ```
 
 ## Linux 一键安装
@@ -112,7 +128,13 @@ curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh 
   Reality 的 shortId（十六进制字符串，长度 2~16）。未指定时脚本自动生成 8 位 hex。
 
 - `--base-dir`（对应 `-BaseDir`，默认 `/opt/xray`）  
-  安装目录，包含：`bin/xray`、`config.json`、`log` 目录和 `links.txt`。
+  安装目录，包含：`bin/xray`、`config.json`、`log` 目录和 `links.txt`。出于安全考虑，脚本会拒绝使用 `/`、`/root`、`/home`、`/usr`、`/var`、`/etc`、`/opt`、`/tmp` 等顶层系统目录作为 `--base-dir`，必须使用诸如 `/opt/xray` 这样的子目录。
+
+- `--keep-config`（对应 `-KeepConfig`，布尔开关）  
+  当 `--base-dir` 下已存在 `config.json` 时，只更新 Xray-core 二进制文件，**不覆盖现有配置、不变更防火墙规则和 systemd 服务**。
+
+- `--force-rebuild-config`（对应 `-ForceRebuildConfig`，布尔开关）  
+  即使 `config.json` 已存在，也会强制覆盖为新的默认配置（UUID、端口等会重新生成）。与 `--keep-config` 互斥。
 
 - `--uninstall`（对应 `-Uninstall`）  
   卸载模式：停止 systemd 服务、删除 service 文件并清理 `BaseDir`。
@@ -121,6 +143,20 @@ curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh 
 
 ```bash
 sudo ./xray-linux-airport.sh --uninstall --base-dir /opt/xray
+```
+
+### Linux 更新 Xray-core（保留配置）
+
+如果希望仅更新 Xray-core 版本，而不改动现有配置/端口/服务，可以在原有 `--base-dir` 上加 `--keep-config`：
+
+```bash
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo BASE_DIR=/opt/xray KEEP_CONFIG=true bash
+```
+
+或：
+
+```bash
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash -s -- --base-dir /opt/xray --keep-config --core-version v25.9.5
 ```
 
 ## Reality Dest / SNI 选择建议

@@ -16,6 +16,9 @@ REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-cloudflare.com}"
 REALITY_SHORT_ID="${REALITY_SHORT_ID:-}"
 BASE_DIR="${BASE_DIR:-/opt/xray}"
 UNINSTALL="false"
+KEEP_CONFIG="${KEEP_CONFIG:-false}"
+FORCE_REBUILD_CONFIG="${FORCE_REBUILD_CONFIG:-false}"
+UPDATE_CORE_ONLY="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       REALITY_SHORT_ID="$2"; shift 2;;
     --base-dir)
       BASE_DIR="$2"; shift 2;;
+    --keep-config)
+      KEEP_CONFIG="true"; shift 1;;
+    --force-rebuild-config)
+      FORCE_REBUILD_CONFIG="true"; shift 1;;
     --uninstall)
       UNINSTALL="true"; shift 1;;
     *)
@@ -80,6 +87,37 @@ log_error() { printf "%b\n" "${COLOR_ERROR}[$(date '+%F %T')] [ERROR] $*${COLOR_
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     log_error "Please run this script as root (sudo)."
+    exit 1
+  fi
+}
+
+validate_base_dir() {
+  local dir="$1"
+
+  if [[ -z "$dir" ]]; then
+    log_error "BASE_DIR is empty. Please set a non-empty directory such as /opt/xray."
+    exit 1
+  fi
+
+  if [[ "$dir" != /* ]]; then
+    log_error "BASE_DIR must be an absolute path, e.g. /opt/xray."
+    exit 1
+  fi
+
+  if [[ "$dir" == "/" ]]; then
+    log_error "Refusing to use '/' as BASE_DIR."
+    exit 1
+  fi
+
+  case "$dir" in
+    /root|/home|/usr|/var|/etc|/opt|/tmp)
+      log_error "Refusing to use system directory '$dir' as BASE_DIR. Please use a subdirectory such as /opt/xray."
+      exit 1
+      ;;
+  esac
+
+  if [[ "$dir" =~ ^/[^/]+$ ]]; then
+    log_error "Refusing to use top-level directory '$dir' as BASE_DIR. Please use a subdirectory such as /opt/xray."
     exit 1
   fi
 }
@@ -132,12 +170,33 @@ ensure_deps() {
   install_dep unzip unzip
 }
 
+validate_port_value() {
+  local name="$1" value="$2" num
+
+  if [[ -z "$value" || "$value" == "0" ]]; then
+    return 0
+  fi
+
+  if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+    log_error "Invalid $name: '$value' is not a valid number."
+    exit 1
+  fi
+
+  num="$value"
+  if (( num < 1 || num > 65535 )); then
+    log_error "Invalid $name: '$value' is out of range (1-65535)."
+    exit 1
+  fi
+}
+
 #################################
 # Uninstall
 #################################
 
 uninstall_xray() {
   local service_name="xray-server"
+  local ports_file="${BASE_DIR}/ports.env"
+  local reality_port="" vmess_kcp_port=""
 
   log_info "Uninstall mode: stopping service and removing files..."
 
@@ -147,6 +206,46 @@ uninstall_xray() {
     rm -f "/etc/systemd/system/${service_name}.service"
     systemctl daemon-reload || true
     log_info "systemd service ${service_name} removed (if existed)."
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    if pgrep -x xray >/dev/null 2>&1; then
+      pkill -x xray || true
+      log_info "Stopped running xray processes (if any)."
+    fi
+  fi
+
+  if [[ -f "$ports_file" ]]; then
+    while IFS='=' read -r k v; do
+      case "$k" in
+        REALITY_PORT) reality_port="$v" ;;
+        VMESS_KCP_PORT) vmess_kcp_port="$v" ;;
+      esac
+    done <"$ports_file"
+  fi
+
+  if [[ -n "$reality_port" || -n "$vmess_kcp_port" ]]; then
+    log_info "Removing firewall rules (if available)..."
+    if command -v firewall-cmd >/dev/null 2>&1; then
+      if [[ -n "$reality_port" ]]; then
+        firewall-cmd --remove-port=${reality_port}/tcp --permanent || true
+      fi
+      if [[ -n "$vmess_kcp_port" ]]; then
+        firewall-cmd --remove-port=${vmess_kcp_port}/udp --permanent || true
+      fi
+      firewall-cmd --reload || true
+    elif command -v ufw >/dev/null 2>&1; then
+      if [[ -n "$reality_port" ]]; then
+        ufw delete allow ${reality_port}/tcp || true
+      fi
+      if [[ -n "$vmess_kcp_port" ]]; then
+        ufw delete allow ${vmess_kcp_port}/udp || true
+      fi
+    else
+      log_warn "No known firewall manager detected while uninstalling. Please check firewall rules for Xray ports manually if needed."
+    fi
+  else
+    log_warn "Ports file not found or empty (${ports_file}); firewall rules may need manual cleanup."
   fi
 
   if [[ -d "$BASE_DIR" ]]; then
@@ -167,14 +266,28 @@ ban_ports=(22 80 81 82 83 88 110 143 443 3306 6379 8080 8081 1080 1081 3389 53 2
 
 is_port_free() {
   local port="$1" proto="$2"
-  if [[ "$proto" == "tcp" ]]; then
-    if ss -ltn 2>/dev/null | awk 'NR>1{print $4}' | grep -qE ":${port}$"; then
-      return 1
+  if command -v ss >/dev/null 2>&1; then
+    if [[ "$proto" == "tcp" ]]; then
+      if ss -ltn 2>/dev/null | awk 'NR>1{print $4}' | grep -qE ":${port}$"; then
+        return 1
+      fi
+    else
+      if ss -lun 2>/dev/null | awk 'NR>1{print $4}' | grep -qE ":${port}$"; then
+        return 1
+      fi
+    fi
+  elif command -v netstat >/dev/null 2>&1; then
+    if [[ "$proto" == "tcp" ]]; then
+      if netstat -lnt 2>/dev/null | awk 'NR>2{print $4}' | grep -qE ":${port}$"; then
+        return 1
+      fi
+    else
+      if netstat -lnu 2>/dev/null | awk 'NR>2{print $4}' | grep -qE ":${port}$"; then
+        return 1
+      fi
     fi
   else
-    if ss -lun 2>/dev/null | awk 'NR>1{print $4}' | grep -qE ":${port}$"; then
-      return 1
-    fi
+    log_warn "Neither 'ss' nor 'netstat' was found. Skipping port-in-use check for ${proto} port ${port}."
   fi
   return 0
 }
@@ -212,6 +325,7 @@ ensure_port() {
 #################################
 
 require_root
+validate_base_dir "$BASE_DIR"
 
 if [[ "$UNINSTALL" == "true" ]]; then
   uninstall_xray
@@ -220,38 +334,63 @@ fi
 
 ensure_deps
 
-if [[ -z "$UUID" ]]; then
-  if command -v uuidgen >/dev/null 2>&1; then
-    UUID="$(uuidgen)"
-  else
-    UUID="$(cat /proc/sys/kernel/random/uuid)"
-  fi
-  log_info "Generated UUID: $UUID"
-fi
-
-REALITY_PORT="$(ensure_port "$REALITY_PORT" tcp)"
-VMESS_KCP_PORT="$(ensure_port "$VMESS_KCP_PORT" udp)"
-if [[ "$REALITY_PORT" == "$VMESS_KCP_PORT" ]]; then
-  VMESS_KCP_PORT="$(ensure_port 0 udp)"
-  log_warn "VMess KCP port conflicts with Reality port, changed to: $VMESS_KCP_PORT"
-fi
-
-if [[ -z "$REALITY_SHORT_ID" ]]; then
-  REALITY_SHORT_ID="$(openssl rand -hex 4 2>/dev/null || od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
-  log_info "Generated Reality shortId: $REALITY_SHORT_ID"
-fi
-
 CORE_REPO="XTLS/Xray-core"
 CORE_FILE_NAME="Xray-linux-64.zip"
 CORE_BIN_DIR="${BASE_DIR}/bin"
 LOG_DIR="${BASE_DIR}/log"
 CONFIG_PATH="${BASE_DIR}/config.json"
 LINKS_FILE="${BASE_DIR}/links.txt"
+PORTS_FILE="${BASE_DIR}/ports.env"
 CORE_ZIP_PATH="${BASE_DIR}/${CORE_FILE_NAME}"
 CORE_EXE="${CORE_BIN_DIR}/xray"
 SERVICE_NAME="xray-server"
 
 mkdir -p "$BASE_DIR" "$CORE_BIN_DIR" "$LOG_DIR"
+
+if [[ -f "$CONFIG_PATH" ]]; then
+  if [[ "$KEEP_CONFIG" == "true" && "$FORCE_REBUILD_CONFIG" == "true" ]]; then
+    log_error "Both --keep-config and --force-rebuild-config were specified. Please choose only one."
+    exit 1
+  elif [[ "$KEEP_CONFIG" == "true" ]]; then
+    UPDATE_CORE_ONLY="true"
+    log_info "Existing config detected at $CONFIG_PATH. --keep-config is set: will only update Xray core and keep existing config, firewall rules and service."
+  elif [[ "$FORCE_REBUILD_CONFIG" == "true" ]]; then
+    log_warn "Existing config at $CONFIG_PATH will be overwritten because --force-rebuild-config is set."
+  else
+    log_error "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it or --force-rebuild-config to overwrite it."
+    exit 1
+  fi
+else
+  if [[ "$KEEP_CONFIG" == "true" ]]; then
+    log_warn "--keep-config was specified but no existing config was found at $CONFIG_PATH. A fresh config will be created."
+  fi
+fi
+
+if [[ "$UPDATE_CORE_ONLY" != "true" ]]; then
+  if [[ -z "$UUID" ]]; then
+    if command -v uuidgen >/dev/null 2>&1; then
+      UUID="$(uuidgen)"
+    else
+      UUID="$(cat /proc/sys/kernel/random/uuid)"
+    fi
+    log_info "Generated UUID: $UUID"
+  fi
+
+  validate_port_value "REALITY_PORT" "$REALITY_PORT"
+  validate_port_value "VMESS_KCP_PORT" "$VMESS_KCP_PORT"
+
+  REALITY_PORT="$(ensure_port "$REALITY_PORT" tcp)"
+  VMESS_KCP_PORT="$(ensure_port "$VMESS_KCP_PORT" udp)"
+  if [[ "$REALITY_PORT" == "$VMESS_KCP_PORT" ]]; then
+    VMESS_KCP_PORT="$(ensure_port 0 udp)"
+    log_warn "VMess KCP port conflicts with Reality port, changed to: $VMESS_KCP_PORT"
+  fi
+
+  if [[ -z "$REALITY_SHORT_ID" ]]; then
+    REALITY_SHORT_ID="$(openssl rand -hex 4 2>/dev/null || od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+    log_info "Generated Reality shortId: $REALITY_SHORT_ID"
+  fi
+fi
 
 if [[ -n "$CORE_VERSION" ]]; then
   CORE_VERSION_NORM="v${CORE_VERSION#v}"
@@ -292,6 +431,12 @@ fi
 if [[ ! -x "$CORE_EXE" ]]; then
   log_error "xray executable not found after extraction: $CORE_EXE"
   exit 1
+fi
+
+if [[ "$UPDATE_CORE_ONLY" == "true" ]]; then
+  log_info "Core update-only mode: existing config at $CONFIG_PATH was kept. Firewall rules and service were not modified."
+  log_info "To apply the new core, please restart the existing service, for example: systemctl restart ${SERVICE_NAME} (if systemd is available)."
+  exit 0
 fi
 
 log_info "Generating Reality X25519 key pair (xray x25519)..."
@@ -504,6 +649,13 @@ vmess_url="vmess://${vmess_b64}"
   echo "$vless_url"
   echo "$vmess_url"
 } >"$LINKS_FILE"
+
+{
+  echo "REALITY_PORT=${REALITY_PORT}"
+  echo "VMESS_KCP_PORT=${VMESS_KCP_PORT}"
+} >"$PORTS_FILE"
+chmod 600 "$PORTS_FILE"
+log_info "Port info has been saved to: $PORTS_FILE"
 
 log_info "All URLs have been saved to: $LINKS_FILE"
 

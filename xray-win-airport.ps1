@@ -505,7 +505,7 @@ if ($schtasksCmd) {
         Start-Sleep -Seconds 2
     }
     catch {
-        Write-Warn "Failed to create or start scheduled task $TaskName: $($_.Exception.Message)"
+        Write-Warn "Failed to create or start scheduled task ${TaskName}: $($_.Exception.Message)"
     }
 }
 
@@ -548,7 +548,7 @@ function New-VlessRealityUrl {
 
     $name = "xray.owokit.com-VLESS-Reality"
     $query = "encryption=none&flow=xtls-rprx-vision&security=reality&sni=$ServerName&fp=chrome&pbk=$PublicKey&sid=$ShortId&spx=%2F&type=tcp"
-    return "vless://$Uuid@$Host:$Port?$query#$name"
+    return "vless://${Uuid}@${Host}:${Port}?${query}#${name}"
 }
 
 function New-VmessUrl {

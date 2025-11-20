@@ -56,6 +56,20 @@ if (-not [Environment]::Is64BitOperatingSystem) {
     exit 1
 }
 
+if ($PSVersionTable.PSVersion.Major -lt 5) {
+    Write-Err "PowerShell 5.0 or later is required. Current version: $($PSVersionTable.PSVersion)"
+    exit 1
+}
+
+if (-not (Get-Command -Name "Invoke-WebRequest" -ErrorAction SilentlyContinue)) {
+    Write-Err "Invoke-WebRequest is not available in this PowerShell environment."
+    exit 1
+}
+
+if (-not (Get-Command -Name "Invoke-RestMethod" -ErrorAction SilentlyContinue)) {
+    Write-Warn "Invoke-RestMethod is not available. Public IP detection will be skipped."
+}
+
 #########################
 # Port helpers
 #########################
@@ -71,11 +85,42 @@ function Test-PortFree {
     )
 
     if ($Protocol -eq "TCP") {
-        $tcp = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
-        return -not $tcp
+        $cmd = Get-Command -Name "Get-NetTCPConnection" -ErrorAction SilentlyContinue
+        if ($cmd) {
+            try {
+                $tcp = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+                return -not $tcp
+            }
+            catch {
+            }
+        }
+        try {
+            $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
+            $listener.Start()
+            $listener.Stop()
+            return $true
+        }
+        catch {
+            return $false
+        }
     } else {
-        $udp = Get-NetUDPEndpoint -LocalPort $Port -ErrorAction SilentlyContinue
-        return -not $udp
+        $cmd = Get-Command -Name "Get-NetUDPEndpoint" -ErrorAction SilentlyContinue
+        if ($cmd) {
+            try {
+                $udp = Get-NetUDPEndpoint -LocalPort $Port -ErrorAction SilentlyContinue
+                return -not $udp
+            }
+            catch {
+            }
+        }
+        try {
+            $udpClient = New-Object System.Net.Sockets.UdpClient($Port)
+            $udpClient.Close()
+            return $true
+        }
+        catch {
+            return $false
+        }
     }
 }
 
@@ -171,7 +216,12 @@ New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 # Download Xray core
 #########################
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+}
+catch {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+}
 
 if ($CoreVersion) {
     $CoreVersionNorm = "v" + $CoreVersion.TrimStart("v")
@@ -207,7 +257,13 @@ try {
     if (Test-Path $CoreBinDir) {
         Get-ChildItem $CoreBinDir | Remove-Item -Force -Recurse
     }
-    Expand-Archive -Path $CoreZipPath -DestinationPath $CoreBinDir -Force
+    $expandArchiveCmd = Get-Command -Name "Expand-Archive" -ErrorAction SilentlyContinue
+    if ($expandArchiveCmd) {
+        Expand-Archive -Path $CoreZipPath -DestinationPath $CoreBinDir -Force
+    } else {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($CoreZipPath, $CoreBinDir)
+    }
 }
 catch {
     Write-Err "Failed to extract Xray: $($_.Exception.Message)"
@@ -382,11 +438,17 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 try {
     Write-Info "Opening TCP ports: $RealityPort, $VmessTcpPort"
-    New-NetFirewallRule -DisplayName "Xray_TCP_Reality_$RealityPort" `
-        -Direction Inbound -Protocol TCP -LocalPort $RealityPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
+    if ($fwCmd) {
+        New-NetFirewallRule -DisplayName "Xray_TCP_Reality_$RealityPort" `
+            -Direction Inbound -Protocol TCP -LocalPort $RealityPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
 
-    New-NetFirewallRule -DisplayName "Xray_TCP_VMess_$VmessTcpPort" `
-        -Direction Inbound -Protocol TCP -LocalPort $VmessTcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+        New-NetFirewallRule -DisplayName "Xray_TCP_VMess_$VmessTcpPort" `
+            -Direction Inbound -Protocol TCP -LocalPort $VmessTcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    } else {
+        & netsh advfirewall firewall add rule name="Xray_TCP_Reality_$RealityPort" dir=in action=allow protocol=TCP localport=$RealityPort | Out-Null
+        & netsh advfirewall firewall add rule name="Xray_TCP_VMess_$VmessTcpPort" dir=in action=allow protocol=TCP localport=$VmessTcpPort | Out-Null
+    }
 }
 catch {
     Write-Warn "Failed to create TCP firewall rules. Please open ports $RealityPort and $VmessTcpPort manually if needed."
@@ -394,8 +456,13 @@ catch {
 
 try {
     Write-Info "Opening UDP port: $VmessKcpPort"
-    New-NetFirewallRule -DisplayName "Xray_UDP_VMessKCP_$VmessKcpPort" `
-        -Direction Inbound -Protocol UDP -LocalPort $VmessKcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
+    if ($fwCmd) {
+        New-NetFirewallRule -DisplayName "Xray_UDP_VMessKCP_$VmessKcpPort" `
+            -Direction Inbound -Protocol UDP -LocalPort $VmessKcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    } else {
+        & netsh advfirewall firewall add rule name="Xray_UDP_VMessKCP_$VmessKcpPort" dir=in action=allow protocol=UDP localport=$VmessKcpPort | Out-Null
+    }
 }
 catch {
     Write-Warn "Failed to create UDP firewall rule. Please open UDP port $VmessKcpPort manually if needed."
@@ -407,35 +474,57 @@ catch {
 
 Write-Info "Configuring scheduled task: $TaskName"
 
-# Delete old task if exists
 try {
-    schtasks.exe /Delete /TN $TaskName /F | Out-Null 2>&1
-} catch {}
+    $schtasksCmd = Get-Command -Name "schtasks.exe" -ErrorAction Stop
+}
+catch {
+    $schtasksCmd = $null
+    Write-Warn "schtasks.exe not found. Skipping scheduled task creation. Xray will be started directly in the current session."
+}
 
-# Create new task: run as SYSTEM on startup
-$taskExe  = "C:\xray\bin\xray.exe"
-$taskArgs = "run -config C:\xray\config.json"
+if ($schtasksCmd) {
+    try {
+        schtasks.exe /Delete /TN $TaskName /F | Out-Null 2>&1
+    } catch {}
 
-$createArgs = @(
-    '/Create',
-    '/TN', $TaskName,
-    '/TR', "`"$taskExe`" $taskArgs",
-    '/SC', 'ONSTART',
-    '/RU', 'SYSTEM'
-)
+    $taskExe  = "C:\xray\bin\xray.exe"
+    $taskArgs = "run -config C:\xray\config.json"
 
-schtasks.exe @createArgs | Out-Null
-Write-Info "Scheduled task $TaskName created (run at system startup as SYSTEM)."
+    $createArgs = @(
+        '/Create',
+        '/TN', $TaskName,
+        '/TR', "`"$taskExe`" $taskArgs",
+        '/SC', 'ONSTART',
+        '/RU', 'SYSTEM'
+    )
 
-# Run once now
-schtasks.exe /Run /TN $TaskName | Out-Null
-Start-Sleep -Seconds 2
+    try {
+        schtasks.exe @createArgs | Out-Null
+        Write-Info "Scheduled task $TaskName created (run at system startup as SYSTEM)."
+        schtasks.exe /Run /TN $TaskName | Out-Null
+        Start-Sleep -Seconds 2
+    }
+    catch {
+        Write-Warn "Failed to create or start scheduled task $TaskName: $($_.Exception.Message)"
+    }
+}
+
+if (-not $schtasksCmd) {
+    try {
+        Start-Process -FilePath $CoreExe -ArgumentList "run -config `"$ConfigPath`"" -WindowStyle Hidden
+        Start-Sleep -Seconds 2
+        Write-Warn "Xray was started directly without a scheduled task. It will stop when the process is terminated or the system reboots."
+    }
+    catch {
+        Write-Err "Failed to start xray.exe directly: $($_.Exception.Message)"
+    }
+}
 
 $xrayProc = Get-Process xray -ErrorAction SilentlyContinue
 if ($xrayProc) {
     Write-Info "Xray process is running (PID: $($xrayProc.Id))."
 } else {
-    Write-Warn "Xray process is not detected after starting the task. Please check C:\xray\log\error.log for details."
+    Write-Warn "Xray process is not detected after start. Please check C:\xray\log\error.log for details."
 }
 
 #########################
@@ -443,6 +532,64 @@ if ($xrayProc) {
 #########################
 
 $ip = $null
+
+function New-VlessRealityUrl {
+    param(
+        [string]$Host,
+        [int]$Port,
+        [string]$Uuid,
+        [string]$PublicKey,
+        [string]$ShortId,
+        [string]$ServerName,
+        [string]$Dest
+    )
+
+    if (-not $Host) { return $null }
+
+    $name = "xray.owokit.com-VLESS-Reality"
+    $query = "encryption=none&flow=xtls-rprx-vision&security=reality&sni=$ServerName&fp=chrome&pbk=$PublicKey&sid=$ShortId&spx=%2F&type=tcp"
+    return "vless://$Uuid@$Host:$Port?$query#$name"
+}
+
+function New-VmessUrl {
+    param(
+        [string]$Host,
+        [int]$Port,
+        [string]$Uuid,
+        [string]$Network,
+        [string]$HeaderType,
+        [string]$Name
+    )
+
+    if (-not $Host) { return $null }
+
+    $obj = @{
+        v   = "2"
+        ps  = $Name
+        add = $Host
+        port = "$Port"
+        id  = $Uuid
+        aid = "0"
+        scy = "auto"
+        net = $Network
+        type = $HeaderType
+        host = ""
+        path = ""
+        tls  = ""
+    }
+
+    try {
+        $json = $obj | ConvertTo-Json -Depth 5 -Compress
+    }
+    catch {
+        $json = $obj | ConvertTo-Json -Depth 5
+    }
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $b64 = [System.Convert]::ToBase64String($bytes)
+    return "vmess://$b64"
+}
+
 try {
     $ip = (Invoke-RestMethod -Uri "https://api.ipify.org?format=json" -ErrorAction Stop).ip
 }
@@ -467,12 +614,24 @@ Write-Host "  shortId: $RealityShortId"
 Write-Host "  publicKey:"
 Write-Host "    $RealityPublicKey" -ForegroundColor Yellow
 
+$vlessUrl = New-VlessRealityUrl -Host $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
+if ($vlessUrl) {
+    Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
+    Write-Host $vlessUrl -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "[2] VMess TCP (backup)" -ForegroundColor Green
 Write-Host "  Address: $ip"
 Write-Host "  Port:    $VmessTcpPort"
 Write-Host "  UUID:    $UUID"
 Write-Host "  Transport: tcp (no TLS, no WS)"
+
+$vmessTcpUrl = New-VmessUrl -Host $ip -Port $VmessTcpPort -Uuid $UUID -Network "tcp" -HeaderType "none" -Name "xray.owokit.com-VMess-TCP"
+if ($vmessTcpUrl) {
+    Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
+    Write-Host $vmessTcpUrl -ForegroundColor Yellow
+}
 
 Write-Host ""
 Write-Host "[3] VMess mKCP + wechat-video (backup)" -ForegroundColor Green
@@ -481,6 +640,12 @@ Write-Host "  Port(UDP): $VmessKcpPort"
 Write-Host "  UUID:      $UUID"
 Write-Host "  Transport: kcp"
 Write-Host "  Header:    wechat-video"
+
+$vmessKcpUrl = New-VmessUrl -Host $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
+if ($vmessKcpUrl) {
+    Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
+    Write-Host $vmessKcpUrl -ForegroundColor Yellow
+}
 
 Write-Host ""
 Write-Host "Config file: $ConfigPath" -ForegroundColor Yellow

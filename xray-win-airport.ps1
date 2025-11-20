@@ -26,17 +26,20 @@ param(
 
 function Write-Info {
     param($msg)
-    Write-Host "[INFO ] $msg" -ForegroundColor Cyan
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[$ts] [INFO ] $msg" -ForegroundColor Cyan
 }
 
 function Write-Warn {
     param($msg)
-    Write-Host "[WARN ] $msg" -ForegroundColor Yellow
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[$ts] [WARN ] $msg" -ForegroundColor Yellow
 }
 
 function Write-Err {
     param($msg)
-    Write-Host "[ERROR] $msg" -ForegroundColor Red
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[$ts] [ERROR] $msg" -ForegroundColor Red
 }
 
 #########################
@@ -564,18 +567,21 @@ function New-VmessUrl {
     if (-not $Address) { return $null }
 
     $obj = @{
-        v   = "2"
-        ps  = $Name
-        add = $Address
+        v    = "2"
+        ps   = $Name
+        add  = $Address
         port = "$Port"
-        id  = $Uuid
-        aid = "0"
-        scy = "auto"
-        net = $Network
+        id   = $Uuid
+        aid  = "0"
+        scy  = "auto"
+        net  = $Network
         type = $HeaderType
         host = ""
         path = ""
         tls  = ""
+        sni  = ""
+        alpn = ""
+        fp   = ""
     }
 
     try {
@@ -604,14 +610,14 @@ Write-Host "Server public IP: $ip" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "[1] VLESS Reality (main node)" -ForegroundColor Green
-Write-Host "  Address: $ip"
-Write-Host "  Port:    $RealityPort"
-Write-Host "  UUID:    $UUID"
-Write-Host "  Flow:    xtls-rprx-vision"
-Write-Host "  Dest:    $RealityDest"
-Write-Host "  SNI:     $RealityServerName"
-Write-Host "  shortId: $RealityShortId"
-Write-Host "  publicKey:"
+Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
+Write-Host ("  {0,-11} {1}" -f "Port:", $RealityPort)
+Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
+Write-Host ("  {0,-11} {1}" -f "Flow:", "xtls-rprx-vision")
+Write-Host ("  {0,-11} {1}" -f "Dest:", $RealityDest)
+Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName)
+Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId)
+Write-Host ("  {0,-11}" -f "publicKey:")
 Write-Host "    $RealityPublicKey" -ForegroundColor Yellow
 
 $vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
@@ -622,10 +628,10 @@ if ($vlessUrl) {
 
 Write-Host ""
 Write-Host "[2] VMess TCP (backup)" -ForegroundColor Green
-Write-Host "  Address: $ip"
-Write-Host "  Port:    $VmessTcpPort"
-Write-Host "  UUID:    $UUID"
-Write-Host "  Transport: tcp (no TLS, no WS)"
+Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
+Write-Host ("  {0,-11} {1}" -f "Port:", $VmessTcpPort)
+Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
+Write-Host ("  {0,-11} {1}" -f "Transport:", "tcp (no TLS, no WS)")
 
 $vmessTcpUrl = New-VmessUrl -Address $ip -Port $VmessTcpPort -Uuid $UUID -Network "tcp" -HeaderType "none" -Name "xray.owokit.com-VMess-TCP"
 if ($vmessTcpUrl) {
@@ -635,16 +641,31 @@ if ($vmessTcpUrl) {
 
 Write-Host ""
 Write-Host "[3] VMess mKCP + wechat-video (backup)" -ForegroundColor Green
-Write-Host "  Address:   $ip"
-Write-Host "  Port(UDP): $VmessKcpPort"
-Write-Host "  UUID:      $UUID"
-Write-Host "  Transport: kcp"
-Write-Host "  Header:    wechat-video"
+Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
+Write-Host ("  {0,-11} {1}" -f "Port(UDP):", $VmessKcpPort)
+Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
+Write-Host ("  {0,-11} {1}" -f "Transport:", "kcp")
+Write-Host ("  {0,-11} {1}" -f "Header:", "wechat-video")
 
 $vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
 if ($vmessKcpUrl) {
     Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
     Write-Host $vmessKcpUrl -ForegroundColor Yellow
+}
+
+$linksFile = Join-Path $BaseDir "links.txt"
+try {
+    $links = @()
+    if ($vlessUrl)    { $links += $vlessUrl }
+    if ($vmessTcpUrl) { $links += $vmessTcpUrl }
+    if ($vmessKcpUrl) { $links += $vmessKcpUrl }
+    if ($links.Count -gt 0) {
+        $links | Set-Content -Path $linksFile -Encoding UTF8
+        Write-Host "All URLs have been saved to: $linksFile" -ForegroundColor Yellow
+    }
+}
+catch {
+    Write-Warn "Failed to save URLs to file: $($_.Exception.Message)"
 }
 
 Write-Host ""

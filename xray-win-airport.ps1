@@ -535,7 +535,7 @@ $ip = $null
 
 function New-VlessRealityUrl {
     param(
-        [string]$Host,
+        [string]$Address,
         [int]$Port,
         [string]$Uuid,
         [string]$PublicKey,
@@ -544,16 +544,16 @@ function New-VlessRealityUrl {
         [string]$Dest
     )
 
-    if (-not $Host) { return $null }
+    if (-not $Address) { return $null }
 
     $name = "xray.owokit.com-VLESS-Reality"
     $query = "encryption=none&flow=xtls-rprx-vision&security=reality&sni=$ServerName&fp=chrome&pbk=$PublicKey&sid=$ShortId&spx=%2F&type=tcp"
-    return "vless://${Uuid}@${Host}:${Port}?${query}#${name}"
+    return "vless://${Uuid}@${Address}:${Port}?${query}#${name}"
 }
 
 function New-VmessUrl {
     param(
-        [string]$Host,
+        [string]$Address,
         [int]$Port,
         [string]$Uuid,
         [string]$Network,
@@ -561,12 +561,12 @@ function New-VmessUrl {
         [string]$Name
     )
 
-    if (-not $Host) { return $null }
+    if (-not $Address) { return $null }
 
     $obj = @{
         v   = "2"
         ps  = $Name
-        add = $Host
+        add = $Address
         port = "$Port"
         id  = $Uuid
         aid = "0"
@@ -614,7 +614,7 @@ Write-Host "  shortId: $RealityShortId"
 Write-Host "  publicKey:"
 Write-Host "    $RealityPublicKey" -ForegroundColor Yellow
 
-$vlessUrl = New-VlessRealityUrl -Host $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
+$vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
 if ($vlessUrl) {
     Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
     Write-Host $vlessUrl -ForegroundColor Yellow
@@ -627,7 +627,7 @@ Write-Host "  Port:    $VmessTcpPort"
 Write-Host "  UUID:    $UUID"
 Write-Host "  Transport: tcp (no TLS, no WS)"
 
-$vmessTcpUrl = New-VmessUrl -Host $ip -Port $VmessTcpPort -Uuid $UUID -Network "tcp" -HeaderType "none" -Name "xray.owokit.com-VMess-TCP"
+$vmessTcpUrl = New-VmessUrl -Address $ip -Port $VmessTcpPort -Uuid $UUID -Network "tcp" -HeaderType "none" -Name "xray.owokit.com-VMess-TCP"
 if ($vmessTcpUrl) {
     Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
     Write-Host $vmessTcpUrl -ForegroundColor Yellow
@@ -641,7 +641,7 @@ Write-Host "  UUID:      $UUID"
 Write-Host "  Transport: kcp"
 Write-Host "  Header:    wechat-video"
 
-$vmessKcpUrl = New-VmessUrl -Host $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
+$vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
 if ($vmessKcpUrl) {
     Write-Host "  URL: " -NoNewline -ForegroundColor Cyan
     Write-Host $vmessKcpUrl -ForegroundColor Yellow

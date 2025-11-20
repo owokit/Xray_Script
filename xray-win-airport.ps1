@@ -648,19 +648,19 @@ catch {
 if (-not $ip) { $ip = "(public IP unknown, please check yourself)" }
 
 Write-Host ""
-Write-Host "================= Xray server deployed =================" -ForegroundColor Green
-Write-Host "Server public IP: $ip" -ForegroundColor Green
+Write-Host "================= Xray server deployed =================" -ForegroundColor Cyan
+Write-Host ("Server public IP: {0}" -f $ip) -ForegroundColor Cyan
 
 Write-Host ""
 Write-Host "[1] VLESS Reality (main node)" -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
-Write-Host ("  {0,-11} {1}" -f "Port:", $RealityPort)
-Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
-Write-Host ("  {0,-11} {1}" -f "Flow:", "xtls-rprx-vision")
-Write-Host ("  {0,-11} {1}" -f "Dest:", $RealityDest)
-Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName)
-Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId)
-Write-Host ("  {0,-11}" -f "publicKey:")
+Write-Host ("  {0,-11} {1}" -f "Address:", $ip) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "Port:", $RealityPort) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "Flow:", "xtls-rprx-vision") -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "Dest:", $RealityDest) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId) -ForegroundColor Gray
+Write-Host ("  {0,-11}" -f "publicKey:") -ForegroundColor Gray
 Write-Host "    $RealityPublicKey" -ForegroundColor Yellow
 
 $vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
@@ -671,11 +671,11 @@ if ($vlessUrl) {
 
 Write-Host ""
 Write-Host "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)" -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f "Address:", $ip)
-Write-Host ("  {0,-11} {1}" -f "Port(UDP):", $VmessKcpPort)
-Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID)
-Write-Host ("  {0,-11} {1}" -f "Transport:", "kcp")
-Write-Host ("  {0,-11} {1}" -f "Header:", "wechat-video")
+Write-Host ("  {0,-11} {1}" -f "Address:", $ip) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "Port(UDP):", $VmessKcpPort) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "Transport:", "kcp") -ForegroundColor Gray
+Write-Host ("  {0,-11} {1}" -f "Header:", "wechat-video") -ForegroundColor Gray
 
 $vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
 if ($vmessKcpUrl) {
@@ -698,7 +698,9 @@ catch {
 }
 
 Write-Host ""
+Write-Host "Tip: When copying the URLs in plain text, make sure there are no line breaks and that the full link stays on a single line." -ForegroundColor Red
+Write-Host ""
 Write-Host "Config file: $ConfigPath" -ForegroundColor Yellow
-Write-Host "Log dir:     $LogDir"
+Write-Host "Log dir:     $LogDir" -ForegroundColor Yellow
 Write-Host "Scheduled task: $TaskName (auto start at boot as SYSTEM)" -ForegroundColor Yellow
-Write-Host "========================================================"
+Write-Host "========================================================" -ForegroundColor Cyan

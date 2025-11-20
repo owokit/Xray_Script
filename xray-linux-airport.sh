@@ -54,11 +54,23 @@ if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   COLOR_WARN="\033[33m"
   COLOR_ERROR="\033[31m"
   COLOR_RESET="\033[0m"
+
+  COLOR_SUM_TITLE="\033[36m"
+  COLOR_SUM_SECTION="\033[32m"
+  COLOR_SUM_LABEL="\033[37m"
+  COLOR_SUM_HIGHLIGHT="\033[35m"
+  COLOR_SUM_URL="\033[33m"
 else
   COLOR_INFO=""
   COLOR_WARN=""
   COLOR_ERROR=""
   COLOR_RESET=""
+
+  COLOR_SUM_TITLE=""
+  COLOR_SUM_SECTION=""
+  COLOR_SUM_LABEL=""
+  COLOR_SUM_HIGHLIGHT=""
+  COLOR_SUM_URL=""
 fi
 
 log_info()  { printf "%b\n" "${COLOR_INFO}[$(date '+%F %T')] [INFO ] $*${COLOR_RESET}" >&2; }
@@ -495,33 +507,29 @@ vmess_url="vmess://${vmess_b64}"
 
 log_info "All URLs have been saved to: $LINKS_FILE"
 
-cat <<SUMMARY
+printf "\n%s================= Xray server deployed (Linux) =================%s\n" "${COLOR_SUM_TITLE}" "${COLOR_RESET}"
+printf "%sServer public IP: %s%s\n\n" "${COLOR_SUM_TITLE}" "${public_ip}" "${COLOR_RESET}"
 
-================= Xray server deployed (Linux) =================
-Server public IP: ${public_ip}
+printf "%s[1] VLESS Reality (main node)%s\n" "${COLOR_SUM_SECTION}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Address:" "${public_ip}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Port:" "${REALITY_PORT}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Flow:" "xtls-rprx-vision" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Dest:" "${REALITY_DEST}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "SNI:" "${REALITY_SERVER_NAME}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "shortId:" "${REALITY_SHORT_ID}" "${COLOR_RESET}"
+printf "%s  %-11s%s\n" "${COLOR_SUM_LABEL}" "publicKey:" "${COLOR_RESET}"
+printf "%s    %s%s\n" "${COLOR_SUM_HIGHLIGHT}" "${reality_pub}" "${COLOR_RESET}"
 
-[1] VLESS Reality (main node)
-  Address:    ${public_ip}
-  Port:       ${REALITY_PORT}
-  UUID:       ${UUID}
-  Flow:       xtls-rprx-vision
-  Dest:       ${REALITY_DEST}
-  SNI:        ${REALITY_SERVER_NAME}
-  shortId:    ${REALITY_SHORT_ID}
-  publicKey:  ${reality_pub}
-  URL:        ${vless_url}
+printf "\n%s[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)%s\n" "${COLOR_SUM_SECTION}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Address:" "${public_ip}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Port(UDP):" "${VMESS_KCP_PORT}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Transport:" "kcp" "${COLOR_RESET}"
+printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "Header:" "wechat-video" "${COLOR_RESET}"
 
-[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)
-  Address:    ${public_ip}
-  Port(UDP):  ${VMESS_KCP_PORT}
-  UUID:       ${UUID}
-  Transport:  kcp
-  Header:     wechat-video
-  URL:        ${vmess_url}
-
-links file:   ${LINKS_FILE}
-config file:  ${CONFIG_PATH}
-log dir:      ${LOG_DIR}
-service:      ${SERVICE_NAME} (systemd)
-========================================================
-SUMMARY
+printf "\n%slinks file:   %s%s\n" "${COLOR_SUM_LABEL}" "${LINKS_FILE}" "${COLOR_RESET}"
+printf "%sconfig file:  %s%s\n" "${COLOR_SUM_LABEL}" "${CONFIG_PATH}" "${COLOR_RESET}"
+printf "%slog dir:      %s%s\n" "${COLOR_SUM_LABEL}" "${LOG_DIR}" "${COLOR_RESET}"
+printf "%sservice:      %s (systemd)%s\n" "${COLOR_SUM_LABEL}" "${SERVICE_NAME}" "${COLOR_RESET}"
+printf "%s========================================================%s\n" "${COLOR_SUM_TITLE}" "${COLOR_RESET}"

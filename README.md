@@ -19,12 +19,10 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm "https://github.com/owokit
 
 ## 参数说明
 
-脚本支持直接在 `iex` 后面加参数，例如：
+脚本支持通过 `iex "& { $(irm ...) } -Param ..."` 的形式传参，例如：
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; \
-irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | \
-iex -RealityDest "www.apple.com:443" -RealityServerName "www.apple.com" -BaseDir "D:\xray" -RealityPort 443
+Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -RealityDest 'www.apple.com:443' -RealityServerName 'www.apple.com' -BaseDir 'D:\xray' -RealityPort 443"
 ```
 
 - **`-RealityPort`**（可选，`int`，`1-65535`）  
@@ -68,9 +66,7 @@ iex -RealityDest "www.apple.com:443" -RealityServerName "www.apple.com" -BaseDir
 **示例：卸载并清理安装目录**（需和当初安装时的 `BaseDir` 保持一致）：
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; \
-irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | \
-iex -Uninstall -BaseDir "D:\xray"
+Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -Uninstall -BaseDir 'D:\xray'"
 ```
 
 ## Reality Dest / SNI 选择建议

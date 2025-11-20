@@ -661,7 +661,7 @@ Write-Host ("  {0,-11} {1}" -f "Dest:", $RealityDest) -ForegroundColor Gray
 Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName) -ForegroundColor Gray
 Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId) -ForegroundColor Gray
 Write-Host ("  {0,-11}" -f "publicKey:") -ForegroundColor Gray
-Write-Host "    $RealityPublicKey" -ForegroundColor Yellow
+Write-Host "    $RealityPublicKey" -ForegroundColor Magenta
 
 $vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
 if ($vlessUrl) {
@@ -690,7 +690,7 @@ try {
     if ($vmessKcpUrl) { $links += $vmessKcpUrl }
     if ($links.Count -gt 0) {
         $links | Set-Content -Path $linksFile -Encoding UTF8
-        Write-Host "All URLs have been saved to: $linksFile" -ForegroundColor Yellow
+        Write-Host "All URLs have been saved to: $linksFile" -ForegroundColor Green
     }
 }
 catch {
@@ -700,7 +700,7 @@ catch {
 Write-Host ""
 Write-Host "Tip: When copying the URLs in plain text, make sure there are no line breaks and that the full link stays on a single line." -ForegroundColor Red
 Write-Host ""
-Write-Host "Config file: $ConfigPath" -ForegroundColor Yellow
-Write-Host "Log dir:     $LogDir" -ForegroundColor Yellow
-Write-Host "Scheduled task: $TaskName (auto start at boot as SYSTEM)" -ForegroundColor Yellow
+Write-Host "Config file: $ConfigPath" -ForegroundColor Gray
+Write-Host "Log dir:     $LogDir" -ForegroundColor Gray
+Write-Host "Scheduled task: $TaskName (auto start at boot as SYSTEM)" -ForegroundColor Gray
 Write-Host "========================================================" -ForegroundColor Cyan

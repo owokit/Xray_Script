@@ -1,9 +1,9 @@
 param(
     # Optional: manually specify ports. If not set, random free ports will be used.
-    [ValidateRange(1,65535)]
-    [Nullable[int]]$RealityPort,
-    [ValidateRange(1,65535)]
-    [Nullable[int]]$VmessKcpPort,  # UDP
+    [ValidateRange(0,65535)]
+    [int]$RealityPort = 0,
+    [ValidateRange(0,65535)]
+    [int]$VmessKcpPort = 0,  # UDP
 
     # Optional: UUID. If not set, a random UUID will be generated and shared by all inbounds.
     [string]$UUID,

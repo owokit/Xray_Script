@@ -16,6 +16,9 @@ REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-cloudflare.com}"
 REALITY_SHORT_ID="${REALITY_SHORT_ID:-}"
 BASE_DIR="${BASE_DIR:-/opt/xray}"
 UNINSTALL="false"
+REBUILD_CONFIG_ONLY="false"
+UNINSTALL_CONFIG="false"
+DELETE_CONFIG="false"
 KEEP_CONFIG="${KEEP_CONFIG:-false}"
 FORCE_REBUILD_CONFIG="${FORCE_REBUILD_CONFIG:-false}"
 UPDATE_CORE_ONLY="false"
@@ -46,8 +49,14 @@ while [[ $# -gt 0 ]]; do
       KEEP_CONFIG="true"; shift 1;;
     --force-rebuild-config)
       FORCE_REBUILD_CONFIG="true"; shift 1;;
+    --rebuild-config-only)
+      REBUILD_CONFIG_ONLY="true"; shift 1;;
     --uninstall)
       UNINSTALL="true"; shift 1;;
+    --uninstall-config)
+      UNINSTALL_CONFIG="true"; shift 1;;
+    --delete-config)
+      DELETE_CONFIG="true"; shift 1;;
     --profile)
       PROFILE="$2"; shift 2;;
     *)
@@ -228,10 +237,59 @@ validate_port_value() {
 # Uninstall
 #################################
 
+cleanup_firewall_rules_from_ports_file() {
+  local ports_file="$1" reality_port="" vmess_kcp_port="" firewall_ports="" k v port proto
+
+  if [[ -f "$ports_file" ]]; then
+    while IFS='=' read -r k v; do
+      case "$k" in
+        REALITY_PORT) reality_port="$v" ;;
+        VMESS_KCP_PORT) vmess_kcp_port="$v" ;;
+        FIREWALL_PORTS) firewall_ports="$v" ;;
+      esac
+    done <"$ports_file"
+  fi
+
+  if [[ -z "$firewall_ports" && ( -n "$reality_port" || -n "$vmess_kcp_port" ) ]]; then
+    if [[ -n "$reality_port" ]]; then
+      firewall_ports="${firewall_ports}${firewall_ports:+ }${reality_port}/tcp"
+    fi
+    if [[ -n "$vmess_kcp_port" ]]; then
+      firewall_ports="${firewall_ports}${firewall_ports:+ }${vmess_kcp_port}/udp"
+    fi
+  fi
+
+  if [[ -z "$firewall_ports" ]]; then
+    log_warn "Ports file not found or empty (${ports_file}); firewall rules may need manual cleanup."
+    return 0
+  fi
+
+  log_info "Removing firewall rules (if available)..."
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    for port_spec in $firewall_ports; do
+      if [[ "$port_spec" =~ ^([0-9]+(-[0-9]+)?)/(.+)$ ]]; then
+        port="${BASH_REMATCH[1]}"
+        proto="${BASH_REMATCH[3]}"
+        firewall-cmd --remove-port=${port}/${proto} --permanent || true
+      fi
+    done
+    firewall-cmd --reload || true
+  elif command -v ufw >/dev/null 2>&1; then
+    for port_spec in $firewall_ports; do
+      if [[ "$port_spec" =~ ^([0-9]+(-[0-9]+)?)/(.+)$ ]]; then
+        port="${BASH_REMATCH[1]}"
+        proto="${BASH_REMATCH[3]}"
+        ufw delete allow ${port}/${proto} || true
+      fi
+    done
+  else
+    log_warn "No known firewall manager detected while uninstalling. Please check firewall rules for Xray ports manually if needed."
+  fi
+}
+
 uninstall_xray() {
   local service_name="xray-server"
   local ports_file="${BASE_DIR}/ports.env"
-  local reality_port="" vmess_kcp_port=""
 
   log_info "Uninstall mode: stopping service and removing files..."
 
@@ -250,38 +308,7 @@ uninstall_xray() {
     fi
   fi
 
-  if [[ -f "$ports_file" ]]; then
-    while IFS='=' read -r k v; do
-      case "$k" in
-        REALITY_PORT) reality_port="$v" ;;
-        VMESS_KCP_PORT) vmess_kcp_port="$v" ;;
-      esac
-    done <"$ports_file"
-  fi
-
-  if [[ -n "$reality_port" || -n "$vmess_kcp_port" ]]; then
-    log_info "Removing firewall rules (if available)..."
-    if command -v firewall-cmd >/dev/null 2>&1; then
-      if [[ -n "$reality_port" ]]; then
-        firewall-cmd --remove-port=${reality_port}/tcp --permanent || true
-      fi
-      if [[ -n "$vmess_kcp_port" ]]; then
-        firewall-cmd --remove-port=${vmess_kcp_port}/udp --permanent || true
-      fi
-      firewall-cmd --reload || true
-    elif command -v ufw >/dev/null 2>&1; then
-      if [[ -n "$reality_port" ]]; then
-        ufw delete allow ${reality_port}/tcp || true
-      fi
-      if [[ -n "$vmess_kcp_port" ]]; then
-        ufw delete allow ${vmess_kcp_port}/udp || true
-      fi
-    else
-      log_warn "No known firewall manager detected while uninstalling. Please check firewall rules for Xray ports manually if needed."
-    fi
-  else
-    log_warn "Ports file not found or empty (${ports_file}); firewall rules may need manual cleanup."
-  fi
+  cleanup_firewall_rules_from_ports_file "$ports_file"
 
   if [[ -d "$BASE_DIR" ]]; then
     rm -rf "$BASE_DIR"
@@ -291,6 +318,45 @@ uninstall_xray() {
   fi
 
   log_info "Xray has been uninstalled on Linux."
+}
+
+uninstall_xray_config_only() {
+  local service_name="xray-server"
+  local ports_file="${BASE_DIR}/ports.env"
+  local config_path="${BASE_DIR}/config.json"
+  local links_file="${BASE_DIR}/links.txt"
+
+  log_info "Uninstall-config mode: stopping service and removing configuration files..."
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop "$service_name" 2>/dev/null || true
+    systemctl disable "$service_name" 2>/dev/null || true
+    rm -f "/etc/systemd/system/${service_name}.service"
+    systemctl daemon-reload || true
+    log_info "systemd service ${service_name} removed (if existed)."
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    if pgrep -x xray >/dev/null 2>&1; then
+      pkill -x xray || true
+      log_info "Stopped running xray processes (if any)."
+    fi
+  fi
+
+  cleanup_firewall_rules_from_ports_file "$ports_file"
+
+  rm -f "$config_path" "$links_file" "$ports_file"
+  log_info "Removed configuration files under ${BASE_DIR} (config.json, links.txt, ports.env)."
+  log_info "Xray configuration has been uninstalled on Linux. Core binaries and logs were kept."
+}
+
+delete_xray_config_files() {
+  local config_path="${BASE_DIR}/config.json"
+  local links_file="${BASE_DIR}/links.txt"
+  local ports_file="${BASE_DIR}/ports.env"
+
+  rm -f "$config_path" "$links_file" "$ports_file"
+  log_info "Deleted configuration files (if existed): $config_path, $links_file, $ports_file"
 }
 
 #################################
@@ -362,10 +428,44 @@ ensure_port() {
 require_root
 validate_base_dir "$BASE_DIR"
 
+ACTION_MODE="install"
+modes_selected=0
 if [[ "$UNINSTALL" == "true" ]]; then
-  uninstall_xray
-  exit 0
+  ACTION_MODE="uninstall-all"
+  modes_selected=$((modes_selected+1))
 fi
+if [[ "$UNINSTALL_CONFIG" == "true" ]]; then
+  ACTION_MODE="uninstall-config"
+  modes_selected=$((modes_selected+1))
+fi
+if [[ "$DELETE_CONFIG" == "true" ]]; then
+  ACTION_MODE="delete-config"
+  modes_selected=$((modes_selected+1))
+fi
+if [[ "$REBUILD_CONFIG_ONLY" == "true" ]]; then
+  ACTION_MODE="rebuild-config-only"
+  modes_selected=$((modes_selected+1))
+fi
+
+if (( modes_selected > 1 )); then
+  log_error "Multiple modes specified. Please choose only one of: --uninstall, --uninstall-config, --delete-config, --rebuild-config-only."
+  exit 1
+fi
+
+case "$ACTION_MODE" in
+  uninstall-all)
+    uninstall_xray
+    exit 0
+    ;;
+  uninstall-config)
+    uninstall_xray_config_only
+    exit 0
+    ;;
+  delete-config)
+    delete_xray_config_files
+    exit 0
+    ;;
+esac
 
 ensure_deps
 
@@ -397,23 +497,34 @@ CORE_EXE="${CORE_BIN_DIR}/xray"
 SERVICE_NAME="xray-server"
 
 mkdir -p "$BASE_DIR" "$CORE_BIN_DIR" "$LOG_DIR"
-
-if [[ -f "$CONFIG_PATH" ]]; then
-  if [[ "$KEEP_CONFIG" == "true" && "$FORCE_REBUILD_CONFIG" == "true" ]]; then
-    log_error "Both --keep-config and --force-rebuild-config were specified. Please choose only one."
+ 
+if [[ "$REBUILD_CONFIG_ONLY" == "true" ]]; then
+  if [[ "$KEEP_CONFIG" == "true" || "$FORCE_REBUILD_CONFIG" == "true" ]]; then
+    log_error "Options --keep-config/--force-rebuild-config cannot be used together with --rebuild-config-only."
     exit 1
-  elif [[ "$KEEP_CONFIG" == "true" ]]; then
-    UPDATE_CORE_ONLY="true"
-    log_info "Existing config detected at $CONFIG_PATH. --keep-config is set: will only update Xray core and keep existing config, firewall rules and service."
-  elif [[ "$FORCE_REBUILD_CONFIG" == "true" ]]; then
-    log_warn "Existing config at $CONFIG_PATH will be overwritten because --force-rebuild-config is set."
-  else
-    log_error "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it or --force-rebuild-config to overwrite it."
+  fi
+  if [[ ! -f "$CONFIG_PATH" ]]; then
+    log_error "Config file not found at $CONFIG_PATH. Please run the script without --rebuild-config-only first to perform initial installation."
     exit 1
   fi
 else
-  if [[ "$KEEP_CONFIG" == "true" ]]; then
-    log_warn "--keep-config was specified but no existing config was found at $CONFIG_PATH. A fresh config will be created."
+  if [[ -f "$CONFIG_PATH" ]]; then
+    if [[ "$KEEP_CONFIG" == "true" && "$FORCE_REBUILD_CONFIG" == "true" ]]; then
+      log_error "Both --keep-config and --force-rebuild-config were specified. Please choose only one."
+      exit 1
+    elif [[ "$KEEP_CONFIG" == "true" ]]; then
+      UPDATE_CORE_ONLY="true"
+      log_info "Existing config detected at $CONFIG_PATH. --keep-config is set: will only update Xray core and keep existing config, firewall rules and service."
+    elif [[ "$FORCE_REBUILD_CONFIG" == "true" ]]; then
+      log_warn "Existing config at $CONFIG_PATH will be overwritten because --force-rebuild-config is set."
+    else
+      log_error "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it or --force-rebuild-config to overwrite it."
+      exit 1
+    fi
+  else
+    if [[ "$KEEP_CONFIG" == "true" ]]; then
+      log_warn "--keep-config was specified but no existing config was found at $CONFIG_PATH. A fresh config will be created."
+    fi
   fi
 fi
 
@@ -452,78 +563,83 @@ if [[ "$UPDATE_CORE_ONLY" != "true" ]]; then
   fi
 fi
 
-if [[ -n "$CORE_VERSION" ]]; then
-  CORE_VERSION_NORM="v${CORE_VERSION#v}"
-  CORE_URL="https://github.com/${CORE_REPO}/releases/download/${CORE_VERSION_NORM}/${CORE_FILE_NAME}"
-  log_info "Using Xray version: $CORE_VERSION_NORM"
+if [[ "$REBUILD_CONFIG_ONLY" != "true" ]]; then
+  if [[ -n "$CORE_VERSION" ]]; then
+    CORE_VERSION_NORM="v${CORE_VERSION#v}"
+    CORE_URL="https://github.com/${CORE_REPO}/releases/download/${CORE_VERSION_NORM}/${CORE_FILE_NAME}"
+    log_info "Using Xray version: $CORE_VERSION_NORM"
+  else
+    CORE_URL="https://github.com/${CORE_REPO}/releases/latest/download/${CORE_FILE_NAME}"
+    log_info "Using latest Xray from $CORE_REPO"
+  fi
+
+  log_info "Downloading Xray from: $CORE_URL"
+
+  curl_args=("-fL" "$CORE_URL" -o "$CORE_ZIP_PATH")
+  if [[ -n "$PROXY" ]]; then
+    log_info "Using proxy for download: $PROXY"
+    curl_args=("-fL" "$CORE_URL" -x "$PROXY" -o "$CORE_ZIP_PATH")
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log_error "curl is required but not found. Please install curl and retry."
+    exit 1
+  fi
+
+  if ! curl "${curl_args[@]}"; then
+    log_error "Failed to download Xray core."
+    exit 1
+  fi
+
+  log_info "Extracting Xray to $CORE_BIN_DIR"
+  rm -rf "$CORE_BIN_DIR"/*
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -o "$CORE_ZIP_PATH" -d "$CORE_BIN_DIR" >/dev/null
+  else
+    log_error "unzip is required but not found. Please install unzip and retry."
+    exit 1
+  fi
+
+  if [[ ! -x "$CORE_EXE" ]]; then
+    log_error "xray executable not found after extraction: $CORE_EXE"
+    exit 1
+  fi
+
+  if [[ "$UPDATE_CORE_ONLY" == "true" ]]; then
+    log_info "Core update-only mode: existing config at $CONFIG_PATH was kept. Firewall rules and service were not modified."
+    log_info "To apply the new core, please restart the existing service, for example: systemctl restart ${SERVICE_NAME} (if systemd is available)."
+    exit 0
+  fi
 else
-  CORE_URL="https://github.com/${CORE_REPO}/releases/latest/download/${CORE_FILE_NAME}"
-  log_info "Using latest Xray from $CORE_REPO"
+  if [[ ! -x "$CORE_EXE" ]]; then
+    log_error "xray executable not found: $CORE_EXE. Please run this script without --rebuild-config-only first to install Xray core."
+    exit 1
+  fi
 fi
 
-log_info "Downloading Xray from: $CORE_URL"
+if [[ "$PROFILE" == reality* ]]; then
+  log_info "Generating Reality X25519 key pair (xray x25519)..."
+  if ! x25519_output="$($CORE_EXE x25519 2>&1)"; then
+    log_error "Failed to run 'xray x25519'"
+    echo "$x25519_output"
+    exit 1
+  fi
 
-curl_args=("-fL" "$CORE_URL" -o "$CORE_ZIP_PATH")
-if [[ -n "$PROXY" ]]; then
-  log_info "Using proxy for download: $PROXY"
-  curl_args=("-fL" "$CORE_URL" -x "$PROXY" -o "$CORE_ZIP_PATH")
+  reality_priv="$(printf '%s\n' "$x25519_output" | sed -n 's/^Private key:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
+  reality_pub="$(printf '%s\n' "$x25519_output" | sed -n 's/^Public key:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
+  if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
+    reality_priv="$(printf '%s\n' "$x25519_output" | sed -n 's/^PrivateKey:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
+    reality_pub="$(printf '%s\n' "$x25519_output" | sed -n 's/^Password:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
+  fi
+
+  if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
+    log_error "Could not parse Reality keys from 'xray x25519' output."
+    echo "$x25519_output"
+    exit 1
+  fi
+
+  log_info "Reality keys generated."
 fi
-
-if ! command -v curl >/dev/null 2>&1; then
-  log_error "curl is required but not found. Please install curl and retry."
-  exit 1
-fi
-
-if ! curl "${curl_args[@]}"; then
-  log_error "Failed to download Xray core."
-  exit 1
-fi
-
-log_info "Extracting Xray to $CORE_BIN_DIR"
-rm -rf "$CORE_BIN_DIR"/*
-if command -v unzip >/dev/null 2>&1; then
-  unzip -o "$CORE_ZIP_PATH" -d "$CORE_BIN_DIR" >/dev/null
-else
-  log_error "unzip is required but not found. Please install unzip and retry."
-  exit 1
-fi
-
-if [[ ! -x "$CORE_EXE" ]]; then
-  log_error "xray executable not found after extraction: $CORE_EXE"
-  exit 1
-fi
-
-if [[ "$UPDATE_CORE_ONLY" == "true" ]]; then
-  log_info "Core update-only mode: existing config at $CONFIG_PATH was kept. Firewall rules and service were not modified."
-  log_info "To apply the new core, please restart the existing service, for example: systemctl restart ${SERVICE_NAME} (if systemd is available)."
-  exit 0
-fi
-
-log_info "Generating Reality X25519 key pair (xray x25519)..."
-if ! x25519_output="$($CORE_EXE x25519 2>&1)"; then
-  log_error "Failed to run 'xray x25519'"
-  echo "$x25519_output"
-  exit 1
-fi
-
-reality_priv="$(printf '%s
-' "$x25519_output" | sed -n 's/^Private key:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-reality_pub="$(printf '%s
-' "$x25519_output" | sed -n 's/^Public key:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
-  reality_priv="$(printf '%s
-' "$x25519_output" | sed -n 's/^PrivateKey:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-  reality_pub="$(printf '%s
-' "$x25519_output" | sed -n 's/^Password:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-fi
-
-if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
-  log_error "Could not parse Reality keys from 'xray x25519' output."
-  echo "$x25519_output"
-  exit 1
-fi
-
-log_info "Reality keys generated."
 
 log_info "Building config: $CONFIG_PATH"
 

@@ -28,6 +28,10 @@ param(
     [switch]$KeepConfig,
     [switch]$ForceRebuildConfig,
 
+    [switch]$RebuildConfigOnly,
+    [switch]$UninstallConfig,
+    [switch]$DeleteConfig,
+
     # Uninstall mode: stop Xray, remove task, firewall rules and files
     [switch]$Uninstall
 )
@@ -156,6 +160,17 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
     exit 1
 }
 
+$modes = @()
+if ($Uninstall)        { $modes += "-Uninstall" }
+if ($UninstallConfig)  { $modes += "-UninstallConfig" }
+if ($DeleteConfig)     { $modes += "-DeleteConfig" }
+if ($RebuildConfigOnly){ $modes += "-RebuildConfigOnly" }
+
+if ($modes.Count -gt 1) {
+    Write-Err "Multiple modes specified. Please choose only one of: -Uninstall, -UninstallConfig, -DeleteConfig, -RebuildConfigOnly."
+    exit 1
+}
+
 if ($Uninstall) {
     Test-SafeBaseDir -Path $BaseDir
     Write-Info "Uninstall mode detected. Stopping Xray and cleaning up..."
@@ -219,6 +234,99 @@ if ($Uninstall) {
 
     Write-Host ""
     Write-Host "Xray has been uninstalled." -ForegroundColor Green
+    exit 0
+}
+
+if ($UninstallConfig) {
+    Test-SafeBaseDir -Path $BaseDir
+    Write-Info "Uninstall-config mode detected. Stopping Xray and removing configuration files..."
+
+    $TaskName = "XrayServer"
+
+    try {
+        $schtasksCmd = Get-Command -Name "schtasks.exe" -ErrorAction SilentlyContinue
+        if ($schtasksCmd) {
+            try {
+                schtasks.exe /End /TN $TaskName /F > $null 2>&1
+            } catch {}
+            try {
+                schtasks.exe /Delete /TN $TaskName /F > $null 2>&1
+            } catch {}
+            Write-Info "Scheduled task ${TaskName} removed (if it existed)."
+        }
+    }
+    catch {
+        Write-Warn "Failed to remove scheduled task ${TaskName}: $($_.Exception.Message)"
+    }
+
+    try {
+        $xrayProc = Get-Process xray -ErrorAction SilentlyContinue
+        if ($xrayProc) {
+            $xrayProc | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Info "Stopped running xray processes."
+        }
+    }
+    catch {
+        Write-Warn "Failed to stop xray process: $($_.Exception.Message)"
+    }
+
+    try {
+        $fwCmd = Get-Command -Name "Get-NetFirewallRule" -ErrorAction SilentlyContinue
+        if ($fwCmd) {
+            $patterns = @("Xray_TCP_Reality_*","Xray_TCP_VMess_*","Xray_UDP_VMessKCP_*")
+            foreach ($pattern in $patterns) {
+                Get-NetFirewallRule -DisplayName $pattern -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+            }
+            Write-Info "Firewall rules for Xray removed (if they existed)."
+        } else {
+            Write-Warn "Get-NetFirewallRule is not available. Please remove Xray_* firewall rules manually if needed."
+        }
+    }
+    catch {
+        Write-Warn "Failed to remove firewall rules: $($_.Exception.Message)"
+    }
+
+    $ConfigPath = Join-Path $BaseDir "config.json"
+    $LinksFile  = Join-Path $BaseDir "links.txt"
+
+    try {
+        if (Test-Path $ConfigPath) {
+            Remove-Item -Path $ConfigPath -Force
+        }
+        if (Test-Path $LinksFile) {
+            Remove-Item -Path $LinksFile -Force
+        }
+        Write-Info "Removed configuration files under $BaseDir (config.json, links.txt)."
+    }
+    catch {
+        Write-Warn "Failed to remove configuration files under ${BaseDir}: $($_.Exception.Message)"
+    }
+
+    Write-Host ""
+    Write-Host "Xray configuration has been uninstalled on Windows. Core binaries and logs were kept." -ForegroundColor Green
+    exit 0
+}
+
+if ($DeleteConfig) {
+    Test-SafeBaseDir -Path $BaseDir
+    Write-Info "Delete-config mode detected. Deleting configuration files only..."
+
+    $ConfigPath = Join-Path $BaseDir "config.json"
+    $LinksFile  = Join-Path $BaseDir "links.txt"
+
+    try {
+        if (Test-Path $ConfigPath) {
+            Remove-Item -Path $ConfigPath -Force
+        }
+        if (Test-Path $LinksFile) {
+            Remove-Item -Path $LinksFile -Force
+        }
+        Write-Info "Deleted configuration files (if they existed): $ConfigPath, $LinksFile"
+    }
+    catch {
+        Write-Warn "Failed to delete configuration files under ${BaseDir}: $($_.Exception.Message)"
+    }
+
     exit 0
 }
 
@@ -385,22 +493,33 @@ $CoreExe      = Join-Path $CoreBinDir $CoreExeName
 
 Test-SafeBaseDir -Path $BaseDir
 
-if (Test-Path $ConfigPath) {
-    if ($KeepConfig -and $ForceRebuildConfig) {
-        Write-Err "Both -KeepConfig and -ForceRebuildConfig were specified. Please choose only one."
+if ($RebuildConfigOnly) {
+    if ($KeepConfig -or $ForceRebuildConfig) {
+        Write-Err "-KeepConfig and -ForceRebuildConfig cannot be used together with -RebuildConfigOnly."
         exit 1
-    } elseif ($KeepConfig) {
-        $UpdateCoreOnly = $true
-        Write-Info "Existing config detected at $ConfigPath. -KeepConfig is set: will only update Xray core and keep existing config, firewall rules and scheduled task."
-    } elseif ($ForceRebuildConfig) {
-        Write-Warn "Existing config at $ConfigPath will be overwritten because -ForceRebuildConfig is set."
-    } else {
-        Write-Err "Config file already exists at $ConfigPath. Use -KeepConfig to reuse it or -ForceRebuildConfig to overwrite it."
+    }
+    if (-not (Test-Path $ConfigPath)) {
+        Write-Err "Config file not found at $ConfigPath. Please run this script without -RebuildConfigOnly first to perform initial installation."
         exit 1
     }
 } else {
-    if ($KeepConfig) {
-        Write-Warn "-KeepConfig was specified but no existing config was found at $ConfigPath. A fresh config will be created."
+    if (Test-Path $ConfigPath) {
+        if ($KeepConfig -and $ForceRebuildConfig) {
+            Write-Err "Both -KeepConfig and -ForceRebuildConfig were specified. Please choose only one."
+            exit 1
+        } elseif ($KeepConfig) {
+            $UpdateCoreOnly = $true
+            Write-Info "Existing config detected at $ConfigPath. -KeepConfig is set: will only update Xray core and keep existing config, firewall rules and scheduled task."
+        } elseif ($ForceRebuildConfig) {
+            Write-Warn "Existing config at $ConfigPath will be overwritten because -ForceRebuildConfig is set."
+        } else {
+            Write-Err "Config file already exists at $ConfigPath. Use -KeepConfig to reuse it or -ForceRebuildConfig to overwrite it."
+            exit 1
+        }
+    } else {
+        if ($KeepConfig) {
+            Write-Warn "-KeepConfig was specified but no existing config was found at $ConfigPath. A fresh config will be created."
+        }
     }
 }
 
@@ -413,69 +532,76 @@ New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 # Download Xray core
 #########################
 
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-}
-catch {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-}
-
-if ($CoreVersion) {
-    $CoreVersionNorm = "v" + $CoreVersion.TrimStart("v")
-    $coreUrl = "https://github.com/$CoreRepo/releases/download/$CoreVersionNorm/$CoreFileName"
-    Write-Info "Using Xray version: $CoreVersionNorm"
-} else {
-    $coreUrl = "https://github.com/$CoreRepo/releases/latest/download/$CoreFileName"
-    Write-Info "Using latest Xray from $CoreRepo"
-}
-
-Write-Info "Downloading Xray from: $coreUrl"
-
-try {
-    $invokeParams = @{
-        Uri     = $coreUrl
-        OutFile = $CoreZipPath
-        UseBasicParsing = $true
+if (-not $RebuildConfigOnly) {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     }
-    if ($Proxy) {
-        Write-Info "Using proxy for download: $Proxy"
-        $invokeParams["Proxy"] = $Proxy
+    catch {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     }
-    Invoke-WebRequest @invokeParams
-}
-catch {
-    Write-Err "Failed to download Xray core: $($_.Exception.Message)"
-    exit 1
-}
 
-Write-Info "Extracting Xray to $CoreBinDir"
-
-try {
-    if (Test-Path $CoreBinDir) {
-        Get-ChildItem $CoreBinDir | Remove-Item -Force -Recurse
-    }
-    $expandArchiveCmd = Get-Command -Name "Expand-Archive" -ErrorAction SilentlyContinue
-    if ($expandArchiveCmd) {
-        Expand-Archive -Path $CoreZipPath -DestinationPath $CoreBinDir -Force
+    if ($CoreVersion) {
+        $CoreVersionNorm = "v" + $CoreVersion.TrimStart("v")
+        $coreUrl = "https://github.com/$CoreRepo/releases/download/$CoreVersionNorm/$CoreFileName"
+        Write-Info "Using Xray version: $CoreVersionNorm"
     } else {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($CoreZipPath, $CoreBinDir)
+        $coreUrl = "https://github.com/$CoreRepo/releases/latest/download/$CoreFileName"
+        Write-Info "Using latest Xray from $CoreRepo"
     }
-}
-catch {
-    Write-Err "Failed to extract Xray: $($_.Exception.Message)"
-    exit 1
-}
 
-if (-not (Test-Path $CoreExe)) {
-    Write-Err "xray.exe not found after extraction."
-    exit 1
-}
+    Write-Info "Downloading Xray from: $coreUrl"
 
-if ($UpdateCoreOnly) {
-    Write-Info "Core update-only mode: existing config at $ConfigPath was kept. Firewall rules and scheduled task were not modified."
-    Write-Info "To apply the new core, please restart the existing scheduled task or service. For example, reboot the system or run: schtasks.exe /Run /TN $TaskName"
-    exit 0
+    try {
+        $invokeParams = @{
+            Uri     = $coreUrl
+            OutFile = $CoreZipPath
+            UseBasicParsing = $true
+        }
+        if ($Proxy) {
+            Write-Info "Using proxy for download: $Proxy"
+            $invokeParams["Proxy"] = $Proxy
+        }
+        Invoke-WebRequest @invokeParams
+    }
+    catch {
+        Write-Err "Failed to download Xray core: $($_.Exception.Message)"
+        exit 1
+    }
+
+    Write-Info "Extracting Xray to $CoreBinDir"
+
+    try {
+        if (Test-Path $CoreBinDir) {
+            Get-ChildItem $CoreBinDir | Remove-Item -Force -Recurse
+        }
+        $expandArchiveCmd = Get-Command -Name "Expand-Archive" -ErrorAction SilentlyContinue
+        if ($expandArchiveCmd) {
+            Expand-Archive -Path $CoreZipPath -DestinationPath $CoreBinDir -Force
+        } else {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($CoreZipPath, $CoreBinDir)
+        }
+    }
+    catch {
+        Write-Err "Failed to extract Xray: $($_.Exception.Message)"
+        exit 1
+    }
+
+    if (-not (Test-Path $CoreExe)) {
+        Write-Err "xray.exe not found after extraction."
+        exit 1
+    }
+
+    if ($UpdateCoreOnly) {
+        Write-Info "Core update-only mode: existing config at $ConfigPath was kept. Firewall rules and scheduled task were not modified."
+        Write-Info "To apply the new core, please restart the existing scheduled task or service. For example, reboot the system or run: schtasks.exe /Run /TN $TaskName"
+        exit 0
+    }
+} else {
+    if (-not (Test-Path $CoreExe)) {
+        Write-Err "xray.exe not found: $CoreExe. Please run this script without -RebuildConfigOnly first to install Xray core."
+        exit 1
+    }
 }
 
 #########################

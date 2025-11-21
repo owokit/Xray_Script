@@ -421,6 +421,27 @@ ensure_port() {
   echo "$port"
 }
 
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" 2>/dev/null && pwd || pwd)"
+
+load_linux_lib_if_present() {
+  local rel="$1"
+  local lib_path
+
+  lib_path="${SCRIPT_DIR}/${rel}"
+  if [[ ! -f "$lib_path" && -d "$BASE_DIR" ]]; then
+    lib_path="${BASE_DIR}/${rel}"
+  fi
+
+  if [[ -f "$lib_path" ]]; then
+    source "$lib_path"
+  fi
+}
+
+load_linux_lib_if_present "linux/xray-common.sh"
+load_linux_lib_if_present "linux/xray-uninstall.sh"
+load_linux_lib_if_present "linux/xray-ports.sh"
+
 #################################
 # Main
 #################################

@@ -160,6 +160,46 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
     exit 1
 }
 
+$scriptDir = $null
+try {
+    if ($MyInvocation.MyCommand.Path) {
+        $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    }
+} catch {
+}
+if (-not $scriptDir) {
+    try {
+        $scriptDir = (Get-Location).Path
+    } catch {
+        $scriptDir = $null
+    }
+}
+
+function Import-XrayModuleIfPresent {
+    param(
+        [string]$RelativePath
+    )
+
+    $candidates = @()
+
+    if ($scriptDir) {
+        $candidates += (Join-Path $scriptDir $RelativePath)
+    }
+    if ($BaseDir) {
+        $candidates += (Join-Path $BaseDir $RelativePath)
+    }
+
+    foreach ($path in $candidates) {
+        if (Test-Path $path) {
+            . $path
+            return
+        }
+    }
+}
+
+Import-XrayModuleIfPresent -RelativePath "windows\Xray-Ports.ps1"
+Import-XrayModuleIfPresent -RelativePath "windows\Xray-Uninstall.ps1"
+
 $modes = @()
 if ($Uninstall)        { $modes += "-Uninstall" }
 if ($UninstallConfig)  { $modes += "-UninstallConfig" }
@@ -172,6 +212,11 @@ if ($modes.Count -gt 1) {
 }
 
 if ($Uninstall) {
+    if (Get-Command -Name Invoke-XrayUninstallAll -ErrorAction SilentlyContinue) {
+        Invoke-XrayUninstallAll
+        exit 0
+    }
+
     Test-SafeBaseDir -Path $BaseDir
     Write-Info "Uninstall mode detected. Stopping Xray and cleaning up..."
 
@@ -238,6 +283,11 @@ if ($Uninstall) {
 }
 
 if ($UninstallConfig) {
+    if (Get-Command -Name Invoke-XrayUninstallConfig -ErrorAction SilentlyContinue) {
+        Invoke-XrayUninstallConfig
+        exit 0
+    }
+
     Test-SafeBaseDir -Path $BaseDir
     Write-Info "Uninstall-config mode detected. Stopping Xray and removing configuration files..."
 
@@ -308,6 +358,11 @@ if ($UninstallConfig) {
 }
 
 if ($DeleteConfig) {
+    if (Get-Command -Name Invoke-XrayDeleteConfig -ErrorAction SilentlyContinue) {
+        Invoke-XrayDeleteConfig
+        exit 0
+    }
+
     Test-SafeBaseDir -Path $BaseDir
     Write-Info "Delete-config mode detected. Deleting configuration files only..."
 

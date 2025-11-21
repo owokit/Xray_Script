@@ -9,6 +9,25 @@
 
 ---
 
+## 项目结构（拆分后的脚本）
+
+- `xray-linux-airport.sh`  
+  Linux 主入口脚本，一键安装命令仍然直接指向该文件。内部会按需加载：  
+  - `linux/xray-common.sh`：通用辅助函数（日志、多语言、依赖安装、`BASE_DIR` 校验等）  
+  - `linux/xray-uninstall.sh`：卸载/卸载配置/仅删配置相关逻辑  
+  - `linux/xray-ports.sh`：端口检查与随机端口分配逻辑  
+  - `xray-profiles-lib.sh`：各协议 Profile 的配置生成功能（按需从 GitHub 下载）
+
+- `xray-win-airport.ps1`  
+  Windows 主入口脚本，一键安装命令仍然直接指向该文件。内部会按需加载：  
+  - `windows\\Xray-Ports.ps1`：端口检查与随机端口分配逻辑  
+  - `windows\\Xray-Uninstall.ps1`：卸载/卸载配置/仅删配置相关逻辑  
+  - `xray-profiles-lib.ps1`：各协议 Profile 的配置生成功能
+
+> 说明：为了保证 `curl | sudo bash` / `irm | iex` 等一键命令在纯脚本环境下也能运行，主脚本内部仍保留一份关键逻辑作为兜底；在本仓库中开发或维护时，建议优先修改 `linux/` 与 `windows/` 目录下的模块文件。
+
+---
+
 ## Linux 一键安装
 
 在目标 Linux 服务器（Ubuntu / Debian / CentOS / Rocky 等，需使用 systemd）上执行：

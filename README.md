@@ -1,33 +1,181 @@
 # Xray_Script
 
-windows 部署 Xray 的脚本：`xray-win-airport.ps1`
-linux 部署 Xray 的脚本：`xray-linux-airport.sh`
+- **Linux 一键部署脚本**：`xray-linux-airport.sh`  
+- **Windows 一键部署脚本**：`xray-win-airport.ps1`
+
+脚本的目标是：在常见的服务器环境下一键部署 **VLESS + Reality 主节点**，并提供 **VMess mKCP + wechat-video 备用节点**，同时支持多种可选协议与卸载/重装场景。
+
+> 默认推荐方案：**VLESS Reality + VMess mKCP（wechat-video）**，在 Linux 与 Windows 上都是默认 Profile。
+
+---
+
+## Linux 一键安装
+
+在目标 Linux 服务器（Ubuntu / Debian / CentOS / Rocky 等，需使用 systemd）上执行：
+
+```bash
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash
+```
+
+脚本会自动完成：
+
+- **检查 root 权限**（必须以 root / sudo 运行）
+- **自动安装依赖**：`curl`、`unzip`、`openssl`（支持 `apt-get` / `yum` / `dnf`)
+- **自动下载 profile 库**：`xray-profiles-lib.sh`（支持多种协议方案）
+- **下载并解压 Xray-core**（`XTLS/Xray-core`，linux-64）
+- **默认生成 VLESS Reality 主节点 + VMess mKCP(wechat-video) 备用节点** 配置
+- 在 `BaseDir`（默认 `/opt/xray`）下生成：`config.json`、`log` 目录、`links.txt`、`ports.env`
+- 创建并启用 systemd 服务 `xray-server`，开机自启
+
+### Linux 协议方案（Profile）
+
+在交互式 TTY 中运行时，脚本会弹出菜单让你选择协议方案；非交互模式时，默认使用：**`reality-kcp`**。
+
+- **`reality-kcp`**（默认）  
+  VLESS Reality（TCP）+ VMess mKCP（UDP wechat-video），推荐方案。
+- **`reality-only`**  
+  仅 VLESS Reality 入站，不启用 mKCP 备用节点。
+- **`kcp-only`**  
+  仅 VMess mKCP + wechat-video（UDP）。
+- **`vmess-tcp` / `vmess-mkcp` / `vmess-quic`**  
+  传统 VMess TCP / mKCP / QUIC。
+- **`vmess-h2-tls` / `vmess-ws-tls` / `vmess-grpc-tls`**  
+  VMess + H2 / WebSocket / gRPC，均使用 **自签名证书 + TLS**。
+- **`vless-h2-tls` / `vless-ws-tls` / `vless-grpc-tls`**  
+  VLESS + H2 / WebSocket / gRPC，自签名证书 + TLS。
+- **`trojan-h2-tls` / `trojan-ws-tls` / `trojan-grpc-tls`**  
+  Trojan + H2 / WebSocket / gRPC，自签名证书 + TLS。
+- **`shadowsocks`**  
+  Shadowsocks（`aes-256-gcm`），使用 UUID 作为密码。
+- **`vmess-tcp-dynamic` / `vmess-mkcp-dynamic` / `vmess-quic-dynamic`**  
+  VMess 动态端口，范围 `20000-30000`。
+
+> **提示：**在大陆环境下不推荐把明文 VMess TCP 作为唯一入口，建议优先使用 `reality-kcp` 或 `reality-only`。
+
+### Linux 参数说明
+
+脚本支持 **命令行参数** 和 **环境变量** 两种方式传参。常用参数：
+
+- **`--reality-port`**（对应环境变量 `REALITY_PORT`）  
+  VLESS Reality TCP 端口。未指定时自动随机选择空闲端口。
+
+- **`--vmess-kcp-port`**（对应 `VMESS_KCP_PORT`）  
+  VMess mKCP UDP 端口。未指定时自动随机选择空闲 UDP 端口。
+
+- **`--uuid`**（对应 `UUID`）  
+  客户端 ID。未指定时自动生成 UUID，并在所有入站上复用。
+
+- **`--core-version`**（对应 `CORE_VERSION`）  
+  指定 Xray-core 版本，例如：`v25.9.5` 或 `25.9.5`。不指定时默认下载最新版本。
+
+- **`--proxy`**（对应 `PROXY`）  
+  下载 Xray-core 时使用的上游代理，例如：`http://127.0.0.1:1080`、`socks5://127.0.0.1:1080`。
+
+- **`--reality-dest` / `--reality-server-name`**（对应 `REALITY_DEST` / `REALITY_SERVER_NAME`）  
+  Reality 的伪装目标与 SNI，默认：`cloudflare.com:443` / `cloudflare.com`。
+
+- **`--reality-short-id`**（对应 `REALITY_SHORT_ID`）  
+  Reality 的 shortId（十六进制字符串，长度 2~16）。未指定时脚本自动生成 8 位 hex。
+
+- **`--profile`**（对应 `PROFILE`）  
+  明确指定协议方案，如 `reality-kcp`、`reality-only` 等。未指定且为交互式终端时，会弹出菜单；非交互模式下默认 `reality-kcp`。
+
+- **`--base-dir`**（对应 `BASE_DIR`，默认 `/opt/xray`）  
+  安装目录，包含：`bin/xray`、`config.json`、`log` 目录、`links.txt`、`ports.env` 等。  
+  出于安全考虑，脚本会拒绝使用：`/`、`/root`、`/home`、`/usr`、`/var`、`/etc`、`/opt`、`/tmp` 等顶层系统目录作为 `--base-dir`，必须使用诸如 `/opt/xray` 这样的子目录（默认值已符合要求）。
+
+- **`--keep-config`**（对应 `KEEP_CONFIG=true`，布尔开关）  
+  当 `--base-dir` 下已存在 `config.json` 时，只更新 Xray-core 二进制文件，**不覆盖现有配置、不变更防火墙规则和 systemd 服务**。适合“只升级核心版本”。
+
+- **`--force-rebuild-config`**（对应 `FORCE_REBUILD_CONFIG=true`，布尔开关）  
+  即使目标目录中已存在 `config.json`，也会强制覆盖为新的默认配置（UUID、端口等会重新生成）。与 `--keep-config` 互斥。
+
+- **`--rebuild-config-only`**（对应 `REBUILD_CONFIG_ONLY=true`，布尔开关）  
+  仅根据当前参数 **重新生成 `config.json`**，不下载/更新 Xray-core，也不改动 systemd 服务及防火墙。  
+  - 需要已有 `config.json` 和 `bin/xray`。  
+  - 不能与 `--keep-config` / `--force-rebuild-config` 同时使用。
+
+- **`--uninstall`**  
+  完整卸载：停止 systemd 服务、删除 service 文件、关闭相关端口防火墙规则并删除整个 `BaseDir` 目录。
+
+- **`--uninstall-config`**  
+  卸载配置：停止 `xray-server` 服务、清理防火墙规则，只删除 `config.json`、`links.txt`、`ports.env`，保留核心和日志。
+
+- **`--delete-config`**  
+  仅删除 `config.json`、`links.txt`、`ports.env`，不停止服务、不改动 systemd 与防火墙（适合手动调试后清理配置）。
+
+### Linux 常见用法示例
+
+- **首次部署（默认 Reality + VMess mKCP）**：
+
+  ```bash
+  curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash
+  ```
+
+- **更新 Xray-core（保留现有配置）**：
+
+  ```bash
+  curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+    | sudo BASE_DIR=/opt/xray KEEP_CONFIG=true CORE_VERSION=v25.9.5 bash
+  ```
+
+  或：
+
+  ```bash
+  curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+    | sudo bash -s -- --base-dir /opt/xray --keep-config --core-version v25.9.5
+  ```
+
+- **强制重新生成配置（覆盖原有 `config.json`）**：
+
+  ```bash
+  curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+    | sudo bash -s -- --base-dir /opt/xray --force-rebuild-config
+  ```
+
+- **仅重建配置（不下载核心，不改 systemd）**：
+
+  ```bash
+  sudo ./xray-linux-airport.sh --rebuild-config-only --base-dir /opt/xray --profile reality-only
+  ```
+
+- **卸载并清理安装目录**（`--base-dir` 与安装时保持一致）：
+
+  ```bash
+  sudo ./xray-linux-airport.sh --uninstall --base-dir /opt/xray
+  ```
+
+---
 
 ## Windows 一键安装
 
-在目标 Windows 服务器上，用管理员 PowerShell 执行：
+在目标 Windows 服务器上，用 **管理员 PowerShell** 执行：
 
-```
+```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex
 ```
 
 上述命令会：
+
 - **下载并解压 Xray-core（XTLS/Xray-core，64 位）**  
-- **生成 VLESS + Reality 主节点配置**（自动生成 X25519 密钥和 shortId）  
-- **可选生成 VMess mKCP + wechat-video 备用节点**（UDP，仅在 TCP 不通时尝试）  
-- 创建开机自启的计划任务（SYSTEM 身份）  
+- **根据 Profile 生成配置**（默认：VLESS Reality 主节点 + VMess mKCP wechat-video 备用）  
+- 生成 Reality 所需 X25519 密钥对与 shortId  
+- 创建开机自启计划任务（SYSTEM 身份）  
 - 在安装目录下生成 `config.json`、日志目录和 `links.txt`（内含订阅链接）
 
-## Windows 参数说明
+### Windows 参数说明
 
-脚本支持通过 `iex "& { $(irm ...) } -Param ..."` 的形式传参，例如：
+支持通过 `iex "& { $(irm ...) } -Param ..."` 的形式传参，例如：
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -RealityDest 'www.apple.com:443' -RealityServerName 'www.apple.com' -BaseDir 'D:\xray' -RealityPort 443"
+Set-ExecutionPolicy Bypass -Scope Process -Force; \
+  iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } `
+    -RealityDest 'www.apple.com:443' -RealityServerName 'www.apple.com' `
+    -BaseDir 'D:\xray' -RealityPort 443"
 ```
 
 - **`-RealityPort`**（可选，`int`，`1-65535`）  
-  VLESS+Reality 入站端口（TCP）。未指定时自动随机选择空闲端口，并避免常见业务端口。
+  VLESS Reality 入站端口（TCP）。未指定时自动随机选择空闲端口，并避免常见业务端口。
 
 - **`-VmessKcpPort`**（可选，`int`，`1-65535`）  
   VMess mKCP 备用节点使用的 UDP 端口。未指定时随机选择空闲 UDP 端口。仅在 TCP/Reality 无法连接时建议尝试，此协议可能被运营商 **QOS/限速或丢包**。
@@ -50,8 +198,14 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github
 - **`-RealityShortId`**（可选）  
   Reality 的 shortId（十六进制字符串，长度 2~16）。未指定时脚本自动生成 8 位 hex。
 
-- **`-BaseDir`**（可选，默认 `$env:SystemDrive\xray`，例如 `C:\xray` 或 `D:\xray`）  
-  脚本的安装目录，包含：
+- **`-Profile`**（可选，默认 `reality-kcp`）  
+  支持：`reality-kcp`、`reality-only`、`kcp-only`。  
+  - `reality-kcp`：VLESS Reality + VMess mKCP wechat-video（推荐）。  
+  - `reality-only`：仅 Reality 主节点。  
+  - `kcp-only`：仅 VMess mKCP 备用节点（UDP）。
+
+- **`-BaseDir`**（可选，默认 `$env:SystemDrive\xray`，如 `C:\xray` 或 `D:\xray`）  
+  安装目录，包含：
   - `bin\\xray.exe`  
   - `config.json`  
   - `log` 日志目录  
@@ -65,107 +219,62 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github
 - **`-ForceRebuildConfig`**（开关）  
   即使目标目录中已存在 `config.json`，也会强制覆盖为新的默认配置（UUID、端口等会重新生成）。与 `-KeepConfig` 互斥。
 
+- **`-RebuildConfigOnly`**（开关）  
+  仅根据当前参数重新生成 `config.json`，不下载/更新 Xray-core，也不改动计划任务和防火墙。  
+  - 需要已有 `config.json` 与 `xray.exe`。  
+  - 不可与 `-KeepConfig` / `-ForceRebuildConfig` 一起使用。
+
 - **`-Uninstall`**（开关）  
-  卸载模式：
-  - 尝试停止正在运行的 `xray` 进程  
+  完整卸载模式：
+  - 停止正在运行的 `xray` 进程  
   - 删除名为 `XrayServer` 的计划任务  
   - 删除名为 `Xray_*` 的防火墙规则（如果系统支持 `Get-NetFirewallRule`）  
-  - 删除指定的 `-BaseDir` 目录及其中文件  
+  - 删除指定的 `-BaseDir` 目录及其中文件
 
-**示例：卸载并清理安装目录**（需和当初安装时的 `BaseDir` 保持一致）：
+- **`-UninstallConfig`**（开关）  
+  仅卸载配置：停止 Xray、删除计划任务和防火墙规则，只删除 `config.json` 和 `links.txt`，**保留核心与日志目录**。
 
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -Uninstall -BaseDir 'D:\xray'"
-```
+- **`-DeleteConfig`**（开关）  
+  只删除 `config.json` 和 `links.txt`，不停止进程、不删除计划任务和防火墙规则（调试时清理配置用）。
 
-### Windows 更新 Xray-core（保留配置）
+### Windows 常见用法示例
 
-如果只是更新 Xray-core 版本，且希望**保留现有 `config.json` / 计划任务 / 防火墙规则**，可以在原来的 `BaseDir` 上加 `-KeepConfig`：
+- **首次部署（默认 Reality + VMess mKCP）**：
 
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -BaseDir 'D:\xray' -KeepConfig -CoreVersion 'v25.9.5'"
-```
+  ```powershell
+  Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex
+  ```
 
-## Linux 一键安装
+- **更新 Xray-core（保留配置）**：
 
-在目标 Linux 服务器（Ubuntu / CentOS 等，需使用 systemd）上，推荐直接执行下面这一行命令：
+  ```powershell
+  Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -BaseDir 'D:\xray' -KeepConfig -CoreVersion 'v25.9.5'"
+  ```
 
-```bash
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash
-```
+- **强制重新生成配置（覆盖 `config.json`）**：
 
-脚本会自动：
-- 检测并要求以 root / sudo 运行
-- 检测并在需要时自动安装依赖：`curl`、`unzip`（支持 `apt-get` / `yum` / `dnf`)
-- 下载并解压 Xray-core（XTLS/Xray-core，linux-64）
-- 生成 VLESS + Reality 主节点和 VMess mKCP 备用节点配置
-- 在 `BaseDir`（默认 `/opt/xray`）下生成 `config.json`、`log` 目录和 `links.txt`
-- 使用 systemd 创建并启用 `xray-server` 服务，自动开机自启
+  ```powershell
+  Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -BaseDir 'D:\xray' -ForceRebuildConfig -Profile 'reality-only'"
+  ```
 
-### Linux 参数说明（与 Windows 版对应）
+- **仅重建配置（不重新下载 Xray-core）**：
 
-支持通过命令行参数或环境变量传参，常用参数：
+  ```powershell
+  Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -BaseDir 'D:\xray' -RebuildConfigOnly -Profile 'reality-kcp'"
+  ```
 
-- `--reality-port`（对应 `-RealityPort`）  
-  VLESS+Reality TCP 端口。未指定时自动随机选择空闲端口。
+- **卸载并清理安装目录**（`-BaseDir` 与安装时保持一致）：
 
-- `--vmess-kcp-port`（对应 `-VmessKcpPort`）  
-  VMess mKCP UDP 端口。未指定时随机选择空闲 UDP 端口。
+  ```powershell
+  Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    iex "& { $(irm 'https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1') } -Uninstall -BaseDir 'D:\xray'"
+  ```
 
-- `--uuid`（对应 `-UUID`）  
-  客户端 ID。未指定时自动生成 UUID，并在所有入站上复用。
-
-- `--core-version`（对应 `-CoreVersion`）  
-  指定 Xray-core 版本，例如：`v25.9.5` 或 `25.9.5`。不指定时默认下载最新版本。
-
-- `--proxy`（对应 `-Proxy`）  
-  下载 Xray-core 时使用的上游代理，例如：`http://127.0.0.1:1080` 或 `socks5://127.0.0.1:1080`。
-
-- `--reality-dest` / `--reality-server-name`（对应 `-RealityDest` / `-RealityServerName`）  
-  Reality 的伪装目标与 SNI，默认：`cloudflare.com:443` / `cloudflare.com`。
-
-- `--reality-short-id`（对应 `-RealityShortId`）  
-  Reality 的 shortId（十六进制字符串，长度 2~16）。未指定时脚本自动生成 8 位 hex。
-
-- `--base-dir`（对应 `-BaseDir`，默认 `/opt/xray`）  
-  安装目录，包含：`bin/xray`、`config.json`、`log` 目录和 `links.txt`。出于安全考虑，脚本会拒绝使用 `/`、`/root`、`/home`、`/usr`、`/var`、`/etc`、`/opt`、`/tmp` 等顶层系统目录作为 `--base-dir`，必须使用诸如 `/opt/xray` 这样的子目录。
-
-- `--keep-config`（对应 `-KeepConfig`，布尔开关）  
-  当 `--base-dir` 下已存在 `config.json` 时，只更新 Xray-core 二进制文件，**不覆盖现有配置、不变更防火墙规则和 systemd 服务**。
-
-- `--force-rebuild-config`（对应 `-ForceRebuildConfig`，布尔开关）  
-  即使 `config.json` 已存在，也会强制覆盖为新的默认配置（UUID、端口等会重新生成）。与 `--keep-config` 互斥。
-
-- `--uninstall`（对应 `-Uninstall`）  
-  卸载模式：停止 systemd 服务、删除 service 文件并清理 `BaseDir`。
-
-**示例：卸载并清理安装目录**（需和当初安装时的 `--base-dir` 保持一致）：
-
-```bash
-sudo ./xray-linux-airport.sh --uninstall --base-dir /opt/xray
-```
-
-### Linux 更新 Xray-core（保留配置）
-
-如果希望仅更新 Xray-core 版本，而不改动现有配置/端口/服务，可以在原有 `--base-dir` 上加 `--keep-config`：
-
-```bash
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo BASE_DIR=/opt/xray KEEP_CONFIG=true bash
-```
-
-或：
-
-```bash
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash -s -- --base-dir /opt/xray --keep-config --core-version v25.9.5
-```
-
-## Reality Dest / SNI 选择建议
-
-默认：
-
-- `RealityDest = cloudflare.com:443`
-- `RealityServerName = cloudflare.com`
-
+---
 如果你的服务器 IP 被 Cloudflare 认为是“脏 IP”，可能会出现无法连接或频繁 403/5xx 的情况。可以改用其他大厂 HTTPS 网站，例如：
 
 - `www.apple.com:443` / SNI: `www.apple.com`  

@@ -469,15 +469,27 @@ esac
 
 ensure_deps
 
+# Ensure base directory exists early for supporting files
+mkdir -p "$BASE_DIR"
+
 # Load profile library
 PROFILE_LIB="${BASE_DIR}/xray-profiles-lib.sh"
 if [[ ! -f "$PROFILE_LIB" ]]; then
   PROFILE_LIB="$(dirname "$0")/xray-profiles-lib.sh"
 fi
+if [[ ! -f "$PROFILE_LIB" ]]; then
+  log_info "Profile library not found locally, downloading from GitHub..."
+  PROFILE_LIB="${BASE_DIR}/xray-profiles-lib.sh"
+  if ! curl -fsSL "https://github.com/owokit/Xray_Script/raw/main/xray-profiles-lib.sh" -o "$PROFILE_LIB"; then
+    log_error "Failed to download profile library. Please check your network or download xray-profiles-lib.sh manually to $BASE_DIR."
+    exit 1
+  fi
+fi
 if [[ -f "$PROFILE_LIB" ]]; then
   source "$PROFILE_LIB"
 else
-  log_warn "Profile library not found, will use built-in profiles only"
+  log_error "Profile library not found. Please check that xray-profiles-lib.sh exists under $BASE_DIR."
+  exit 1
 fi
 
 # Select profile interactively if not specified

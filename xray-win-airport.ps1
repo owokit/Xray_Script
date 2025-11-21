@@ -20,6 +20,8 @@ param(
     # Reality shortId (hex, length 2~16). If empty, generate 8 hex chars.
     [string]$RealityShortId,
 
+    [string]$Profile = "reality-kcp",
+
     # Base directory for installation
     [string]$BaseDir = "$( $env:SystemDrive)\xray",
 
@@ -335,6 +337,27 @@ if ($VmessKcpPort -eq $RealityPort) {
     Write-Warn "VMess KCP port conflicts with Reality port, changed to: $VmessKcpPort"
 }
 
+$Profile = $Profile.ToLowerInvariant()
+$enableRealityInbound = $false
+$enableVmessKcpInbound = $false
+
+switch ($Profile) {
+    "reality-kcp" {
+        $enableRealityInbound = $true
+        $enableVmessKcpInbound = $true
+    }
+    "reality-only" {
+        $enableRealityInbound = $true
+    }
+    "kcp-only" {
+        $enableVmessKcpInbound = $true
+    }
+    default {
+        Write-Err (T ("无效的 Profile: {0}，支持: reality-kcp, reality-only, kcp-only." -f $Profile) ("Invalid profile: {0}. Supported values: reality-kcp, reality-only, kcp-only." -f $Profile))
+        exit 1
+    }
+}
+
 # Reality shortId
 if (-not $RealityShortId) {
     $bytes = New-Object 'System.Byte[]' 4
@@ -499,77 +522,84 @@ Write-Info "Reality keys generated."
 
 Write-Info "Building config: $ConfigPath"
 
+$inbounds = @()
+
+if ($enableRealityInbound) {
+    # 1) VLESS + Reality (main)
+    $inbounds += @{
+        port     = $RealityPort
+        listen   = "0.0.0.0"
+        protocol = "vless"
+        settings = @{
+            clients = @(
+                @{
+                    id   = $UUID
+                    flow = "xtls-rprx-vision"
+                }
+            )
+            decryption = "none"
+        }
+        streamSettings = @{
+            network  = "tcp"
+            security = "reality"
+            realitySettings = @{
+                show        = $false
+                dest        = $RealityDest
+                xver        = 0
+                serverNames = @($RealityServerName)
+                privateKey  = $RealityPrivateKey
+                shortIds    = @($RealityShortId)
+            }
+        }
+        sniffing = @{
+            enabled      = $true
+            destOverride = @("http","tls")
+        }
+        tag = "in-vless-reality"
+    }
+}
+
+if ($enableVmessKcpInbound) {
+    # 2) VMess mKCP + wechat-video (fallback)
+    $inbounds += @{
+        port     = $VmessKcpPort
+        listen   = "0.0.0.0"
+        protocol = "vmess"
+        settings = @{
+            clients = @(
+                @{
+                    id      = $UUID
+                    alterId = 0
+                    level   = 0
+                }
+            )
+        }
+        streamSettings = @{
+            network = "kcp"
+            kcpSettings = @{
+                mtu              = 1350
+                tti              = 20
+                uplinkCapacity   = 5
+                downlinkCapacity = 20
+                congestion       = $false
+                readBufferSize   = 2
+                writeBufferSize  = 2
+                header = @{
+                    type = "wechat-video"
+                }
+            }
+        }
+        tag = "in-vmess-kcp-wechatvideo"
+    }
+}
+
 $config = @{
     log = @{
         access   = (Join-Path $LogDir "access.log")
         error    = (Join-Path $LogDir "error.log")
         loglevel = "warning"
     }
-    inbounds = @(
-        # 1) VLESS + Reality (main)
-        @{
-            port     = $RealityPort
-            listen   = "0.0.0.0"
-            protocol = "vless"
-            settings = @{
-                clients = @(
-                    @{
-                        id   = $UUID
-                        flow = "xtls-rprx-vision"
-                    }
-                )
-                decryption = "none"
-            }
-            streamSettings = @{
-                network  = "tcp"
-                security = "reality"
-                realitySettings = @{
-                    show        = $false
-                    dest        = $RealityDest
-                    xver        = 0
-                    serverNames = @($RealityServerName)
-                    privateKey  = $RealityPrivateKey
-                    shortIds    = @($RealityShortId)
-                }
-            }
-            sniffing = @{
-                enabled      = $true
-                destOverride = @("http","tls")
-            }
-            tag = "in-vless-reality"
-        },
-        # 2) VMess mKCP + wechat-video (fallback)
-        @{
-            port     = $VmessKcpPort
-            listen   = "0.0.0.0"
-            protocol = "vmess"
-            settings = @{
-                clients = @(
-                    @{
-                        id      = $UUID
-                        alterId = 0
-                        level   = 0
-                    }
-                )
-            }
-            streamSettings = @{
-                network = "kcp"
-                kcpSettings = @{
-                    mtu              = 1350
-                    tti              = 20
-                    uplinkCapacity   = 5
-                    downlinkCapacity = 20
-                    congestion       = $false
-                    readBufferSize   = 2
-                    writeBufferSize  = 2
-                    header = @{
-                        type = "wechat-video"
-                    }
-                }
-            }
-            tag = "in-vmess-kcp-wechatvideo"
-        }
-    )
+    inbounds = $inbounds
     outbounds = @(
         @{
             protocol = "freedom"
@@ -597,32 +627,36 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # Firewall rules
 #########################
 
-try {
-    Write-Info "Opening TCP port: $RealityPort"
-    $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
-    if ($fwCmd) {
-        New-NetFirewallRule -DisplayName "Xray_TCP_Reality_$RealityPort" `
-            -Direction Inbound -Protocol TCP -LocalPort $RealityPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
-    } else {
-        & netsh advfirewall firewall add rule name="Xray_TCP_Reality_$RealityPort" dir=in action=allow protocol=TCP localport=$RealityPort | Out-Null
+if ($enableRealityInbound) {
+    try {
+        Write-Info "Opening TCP port: $RealityPort"
+        $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
+        if ($fwCmd) {
+            New-NetFirewallRule -DisplayName "Xray_TCP_Reality_$RealityPort" `
+                -Direction Inbound -Protocol TCP -LocalPort $RealityPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+        } else {
+            & netsh advfirewall firewall add rule name="Xray_TCP_Reality_$RealityPort" dir=in action=allow protocol=TCP localport=$RealityPort | Out-Null
+        }
     }
-}
-catch {
-    Write-Warn "Failed to create TCP firewall rule for port ${RealityPort}: $($_.Exception.Message). Please open this port manually if needed."
+    catch {
+        Write-Warn "Failed to create TCP firewall rule for port ${RealityPort}: $($_.Exception.Message). Please open this port manually if needed."
+    }
 }
 
-try {
-    Write-Info "Opening UDP port: $VmessKcpPort"
-    $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
-    if ($fwCmd) {
-        New-NetFirewallRule -DisplayName "Xray_UDP_VMessKCP_$VmessKcpPort" `
-            -Direction Inbound -Protocol UDP -LocalPort $VmessKcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
-    } else {
-        & netsh advfirewall firewall add rule name="Xray_UDP_VMessKCP_$VmessKcpPort" dir=in action=allow protocol=UDP localport=$VmessKcpPort | Out-Null
+if ($enableVmessKcpInbound) {
+    try {
+        Write-Info "Opening UDP port: $VmessKcpPort"
+        $fwCmd = Get-Command -Name "New-NetFirewallRule" -ErrorAction SilentlyContinue
+        if ($fwCmd) {
+            New-NetFirewallRule -DisplayName "Xray_UDP_VMessKCP_$VmessKcpPort" `
+                -Direction Inbound -Protocol UDP -LocalPort $VmessKcpPort -Action Allow -ErrorAction SilentlyContinue | Out-Null
+        } else {
+            & netsh advfirewall firewall add rule name="Xray_UDP_VMessKCP_$VmessKcpPort" dir=in action=allow protocol=UDP localport=$VmessKcpPort | Out-Null
+        }
     }
-}
-catch {
-    Write-Warn "Failed to create UDP firewall rule for port ${VmessKcpPort}: $($_.Exception.Message). Please open this port manually if needed."
+    catch {
+        Write-Warn "Failed to create UDP firewall rule for port ${VmessKcpPort}: $($_.Exception.Message). Please open this port manually if needed."
+    }
 }
 
 #########################
@@ -762,36 +796,43 @@ Write-Host ""
 Write-Host (T "================= Xray 服务器部署完成 =================" "================= Xray server deployed =================") -ForegroundColor Cyan
 Write-Host (T ("服务器公网 IP: {0}" -f $ip) ("Server public IP: {0}" -f $ip)) -ForegroundColor Cyan
 
-Write-Host ""
-Write-Host (T "[1] VLESS Reality（主节点）" "[1] VLESS Reality (main node)") -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f (T "地址:" "Address:"), $ip) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f (T "端口:" "Port:"), $RealityPort) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f (T "流控:" "Flow:"), "xtls-rprx-vision") -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f (T "目标站:" "Dest:"), $RealityDest) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId) -ForegroundColor Gray
-Write-Host ("  {0,-11}" -f (T "公钥:" "publicKey:")) -ForegroundColor Gray
-Write-Host "    $RealityPublicKey" -ForegroundColor Magenta
+$vlessUrl = $null
+$vmessKcpUrl = $null
 
-$vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
-if ($vlessUrl) {
-    Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
-    Write-Host $vlessUrl -ForegroundColor Yellow
+if ($enableRealityInbound) {
+    Write-Host ""
+    Write-Host (T "[1] VLESS Reality（主节点）" "[1] VLESS Reality (main node)") -ForegroundColor Green
+    Write-Host ("  {0,-11} {1}" -f (T "地址:" "Address:"), $ip) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f (T "端口:" "Port:"), $RealityPort) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f (T "流控:" "Flow:"), "xtls-rprx-vision") -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f (T "目标站:" "Dest:"), $RealityDest) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f "SNI:", $RealityServerName) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f "shortId:", $RealityShortId) -ForegroundColor Gray
+    Write-Host ("  {0,-11}" -f (T "公钥:" "publicKey:")) -ForegroundColor Gray
+    Write-Host "    $RealityPublicKey" -ForegroundColor Magenta
+
+    $vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
+    if ($vlessUrl) {
+        Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
+        Write-Host $vlessUrl -ForegroundColor Yellow
+    }
 }
 
-Write-Host ""
-Write-Host (T "[2] VMess mKCP + wechat-video（备用，仅在 TCP/Reality 不可用时尝试；注意部分运营商/网络可能限制 UDP）" "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)") -ForegroundColor Green
-Write-Host ("  {0,-11} {1}" -f (T "地址:" "Address:"), $ip) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f (T "端口(UDP):" "Port(UDP):"), $VmessKcpPort) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f (T "传输:" "Transport:"), "kcp") -ForegroundColor Gray
-Write-Host ("  {0,-11} {1}" -f (T "伪装头:" "Header:"), "wechat-video") -ForegroundColor Gray
+if ($enableVmessKcpInbound) {
+    Write-Host ""
+    Write-Host (T "[2] VMess mKCP + wechat-video（备用，仅在 TCP/Reality 不可用时尝试；注意部分运营商/网络可能限制 UDP）" "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)") -ForegroundColor Green
+    Write-Host ("  {0,-11} {1}" -f (T "地址:" "Address:"), $ip) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f (T "端口(UDP):" "Port(UDP):"), $VmessKcpPort) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f "UUID:", $UUID) -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f (T "传输:" "Transport:"), "kcp") -ForegroundColor Gray
+    Write-Host ("  {0,-11} {1}" -f (T "伪装头:" "Header:"), "wechat-video") -ForegroundColor Gray
 
-$vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
-if ($vmessKcpUrl) {
-    Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
-    Write-Host $vmessKcpUrl -ForegroundColor Yellow
+    $vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
+    if ($vmessKcpUrl) {
+        Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
+        Write-Host $vmessKcpUrl -ForegroundColor Yellow
+    }
 }
 
 $linksFile = Join-Path $BaseDir "links.txt"

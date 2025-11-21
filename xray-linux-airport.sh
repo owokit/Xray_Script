@@ -19,6 +19,8 @@ UNINSTALL="false"
 KEEP_CONFIG="${KEEP_CONFIG:-false}"
 FORCE_REBUILD_CONFIG="${FORCE_REBUILD_CONFIG:-false}"
 UPDATE_CORE_ONLY="false"
+PROFILE="${PROFILE:-}"
+MAIN_PORT="${MAIN_PORT:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +48,8 @@ while [[ $# -gt 0 ]]; do
       FORCE_REBUILD_CONFIG="true"; shift 1;;
     --uninstall)
       UNINSTALL="true"; shift 1;;
+    --profile)
+      PROFILE="$2"; shift 2;;
     *)
       echo "Unknown argument: $1" >&2
       exit 1;;
@@ -198,6 +202,7 @@ install_dep() {
 ensure_deps() {
   install_dep curl curl
   install_dep unzip unzip
+  install_dep openssl openssl  # For certificate generation
 }
 
 validate_port_value() {
@@ -364,6 +369,22 @@ fi
 
 ensure_deps
 
+# Load profile library
+PROFILE_LIB="${BASE_DIR}/xray-profiles-lib.sh"
+if [[ ! -f "$PROFILE_LIB" ]]; then
+  PROFILE_LIB="$(dirname "$0")/xray-profiles-lib.sh"
+fi
+if [[ -f "$PROFILE_LIB" ]]; then
+  source "$PROFILE_LIB"
+else
+  log_warn "Profile library not found, will use built-in profiles only"
+fi
+
+# Select profile interactively if not specified
+if command -v select_profile_interactive >/dev/null 2>&1; then
+  select_profile_interactive
+fi
+
 CORE_REPO="XTLS/Xray-core"
 CORE_FILE_NAME="Xray-linux-64.zip"
 CORE_BIN_DIR="${BASE_DIR}/bin"
@@ -411,6 +432,15 @@ if [[ "$UPDATE_CORE_ONLY" != "true" ]]; then
 
   REALITY_PORT="$(ensure_port "$REALITY_PORT" tcp)"
   VMESS_KCP_PORT="$(ensure_port "$VMESS_KCP_PORT" udp)"
+
+  PROFILE="${PROFILE,,}"
+  
+  # Initialize required variables for config generation
+  CERT_FILE=""
+  KEY_FILE=""
+  FIREWALL_PORTS=""
+  PROFILE_DISPLAY_NAME=""
+
   if [[ "$REALITY_PORT" == "$VMESS_KCP_PORT" ]]; then
     VMESS_KCP_PORT="$(ensure_port 0 udp)"
     log_warn "VMess KCP port conflicts with Reality port, changed to: $VMESS_KCP_PORT"
@@ -497,110 +527,42 @@ log_info "Reality keys generated."
 
 log_info "Building config: $CONFIG_PATH"
 
-cat >"$CONFIG_PATH" <<EOF
-{
-  "log": {
-    "access": "${LOG_DIR}/access.log",
-    "error": "${LOG_DIR}/error.log",
-    "loglevel": "warning"
-  },
-  "inbounds": [
-    {
-      "port": ${REALITY_PORT},
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${UUID}",
-            "flow": "xtls-rprx-vision"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "${REALITY_DEST}",
-          "xver": 0,
-          "serverNames": ["${REALITY_SERVER_NAME}"],
-          "privateKey": "${reality_priv}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
-      },
-      "tag": "in-vless-reality"
-    },
-    {
-      "port": ${VMESS_KCP_PORT},
-      "listen": "0.0.0.0",
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          {
-            "id": "${UUID}",
-            "alterId": 0,
-            "level": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "kcp",
-        "kcpSettings": {
-          "mtu": 1350,
-          "tti": 20,
-          "uplinkCapacity": 5,
-          "downlinkCapacity": 20,
-          "congestion": false,
-          "readBufferSize": 2,
-          "writeBufferSize": 2,
-          "header": {
-            "type": "wechat-video"
-          }
-        }
-      },
-      "tag": "in-vmess-kcp-wechatvideo"
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {},
-      "tag": "direct"
-    },
-    {
-      "protocol": "blackhole",
-      "settings": {},
-      "tag": "blocked"
-    }
-  ],
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": []
-  }
-}
-EOF
+# Build configuration based on selected profile
+if command -v build_config_for_profile >/dev/null 2>&1; then
+  build_config_for_profile "$PROFILE"
+else
+  log_error "Profile configuration builder not found. Please check the library file."
+  exit 1
+fi
 
 chmod 600 "$CONFIG_PATH"
 
 log_info "Configuring firewall (if available)"
 
-if command -v firewall-cmd >/dev/null 2>&1; then
-  firewall-cmd --add-port=${REALITY_PORT}/tcp --permanent || true
-  firewall-cmd --add-port=${VMESS_KCP_PORT}/udp --permanent || true
-  firewall-cmd --reload || true
-  log_info "Opened ports in firewalld: ${REALITY_PORT}/tcp, ${VMESS_KCP_PORT}/udp"
-elif command -v ufw >/dev/null 2>&1; then
-  ufw allow ${REALITY_PORT}/tcp || true
-  ufw allow ${VMESS_KCP_PORT}/udp || true
-  log_info "Opened ports in ufw: ${REALITY_PORT}/tcp, ${VMESS_KCP_PORT}/udp"
-else
-  log_warn "No known firewall manager detected (firewalld/ufw). Please ensure ports ${REALITY_PORT}/tcp and ${VMESS_KCP_PORT}/udp are open manually if needed."
+# Open ports based on profile
+if [[ -n "$FIREWALL_PORTS" ]]; then
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    for port_spec in $FIREWALL_PORTS; do
+      if [[ "$port_spec" =~ ^([0-9]+(-[0-9]+)?)/(.+)$ ]]; then
+        port="${BASH_REMATCH[1]}"
+        proto="${BASH_REMATCH[3]}"
+        firewall-cmd --add-port=${port}/${proto} --permanent || true
+      fi
+    done
+    firewall-cmd --reload || true
+    log_info "Opened ports in firewalld: $FIREWALL_PORTS"
+  elif command -v ufw >/dev/null 2>&1; then
+    for port_spec in $FIREWALL_PORTS; do
+      if [[ "$port_spec" =~ ^([0-9]+(-[0-9]+)?)/(.+)$ ]]; then
+        port="${BASH_REMATCH[1]}"
+        proto="${BASH_REMATCH[3]}"
+        ufw allow ${port}/${proto} || true
+      fi
+    done
+    log_info "Opened ports in ufw: $FIREWALL_PORTS"
+  else
+    log_warn "No known firewall manager detected (firewalld/ufw). Please ensure the ports are open manually: $FIREWALL_PORTS"
+  fi
 fi
 
 log_info "Configuring systemd service: ${SERVICE_NAME}"
@@ -645,13 +607,19 @@ if [[ -z "$public_ip" ]]; then
   public_ip="$(t "（公网 IP 未知，请自行检查）" "(public IP unknown, please check yourself)")"
 fi
 
-vless_name="xray.owokit.com-VLESS-Reality"
-
-vless_url="vless://${UUID}@${public_ip}:${REALITY_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAME}&fp=chrome&pbk=${reality_pub}&sid=${REALITY_SHORT_ID}&spx=%2F&type=tcp#${vless_name}"
-
-vmess_name="xray.owokit.com-VMess-mKCP-wechat-video"
-
-vmess_json=$(cat <<JSON
+# Generate URLs and summary based on profile
+generate_url_for_profile() {
+  local profile="$1"
+  local url=""
+  
+  case "$profile" in
+    reality-kcp|reality-only)
+      local vless_name="xray.owokit.com-VLESS-Reality"
+      url="vless://${UUID}@${public_ip}:${REALITY_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAME}&fp=chrome&pbk=${reality_pub}&sid=${REALITY_SHORT_ID}&spx=%2F&type=tcp#${vless_name}"
+      echo "$url"
+      if [[ "$profile" == "reality-kcp" ]]; then
+        local vmess_name="xray.owokit.com-VMess-mKCP-wechat-video"
+        local vmess_json=$(cat <<JSON
 {
   "v": "2",
   "ps": "${vmess_name}",
@@ -671,48 +639,120 @@ vmess_json=$(cat <<JSON
 }
 JSON
 )
-
-vmess_b64="$(printf '%s' "$vmess_json" | base64 -w0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
-vmess_url="vmess://${vmess_b64}"
-
+        local vmess_b64="$(printf '%s' "$vmess_json" | base64 -w0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
+        echo "vmess://${vmess_b64}"
+      fi
+      ;;
+    *vmess*|*vless*|*trojan*|shadowsocks|kcp-only)
+      # For other protocols, generate appropriate URLs
+      local port="${MAIN_PORT:-${REALITY_PORT:-${VMESS_KCP_PORT}}}"
+      case "$profile" in
+        *vmess*)
+          local vmess_json=$(cat <<JSON
 {
-  echo "$vless_url"
-  echo "$vmess_url"
-} >"$LINKS_FILE"
+  "v": "2",
+  "ps": "xray.owokit.com-${PROFILE_DISPLAY_NAME}",
+  "add": "${public_ip}",
+  "port": "${port}",
+  "id": "${UUID}",
+  "aid": "0",
+  "scy": "auto",
+  "net": "tcp",
+  "type": "none",
+  "host": "",
+  "path": "",
+  "tls": "$([[ "$profile" == *tls* ]] && echo "tls" || echo "")",
+  "sni": "",
+  "alpn": "",
+  "fp": ""
+}
+JSON
+)
+          local vmess_b64="$(printf '%s' "$vmess_json" | base64 -w0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
+          echo "vmess://${vmess_b64}"
+          ;;
+        *trojan*)
+          echo "trojan://${UUID}@${public_ip}:${port}#xray.owokit.com-${PROFILE_DISPLAY_NAME}"
+          ;;
+        shadowsocks)
+          # Shadowsocks URL format: ss://base64(method:password)@server:port#name
+          local ss_str="aes-256-gcm:${UUID}"
+          local ss_b64="$(printf '%s' "$ss_str" | base64 -w0 2>/dev/null || printf '%s' "$ss_str" | base64 | tr -d '\n')"
+          echo "ss://${ss_b64}@${public_ip}:${port}#xray.owokit.com-Shadowsocks"
+          ;;
+      esac
+      ;;
+  esac
+}
 
+# Save URLs to file
+urls=($(generate_url_for_profile "$PROFILE"))
+printf "%s\n" "${urls[@]}" > "$LINKS_FILE"
+
+# Save port info
 {
-  echo "REALITY_PORT=${REALITY_PORT}"
-  echo "VMESS_KCP_PORT=${VMESS_KCP_PORT}"
+  echo "PROFILE=${PROFILE}"
+  echo "MAIN_PORT=${MAIN_PORT:-}"
+  echo "REALITY_PORT=${REALITY_PORT:-}"
+  echo "VMESS_KCP_PORT=${VMESS_KCP_PORT:-}"
+  echo "FIREWALL_PORTS=${FIREWALL_PORTS}"
 } >"$PORTS_FILE"
 chmod 600 "$PORTS_FILE"
 log_info "$(t "端口信息已保存到: $PORTS_FILE" "Port info has been saved to: $PORTS_FILE")"
-
 log_info "$(t "所有链接已保存到: $LINKS_FILE" "All URLs have been saved to: $LINKS_FILE")"
 
 printf "\n%s%s%s\n" "${COLOR_SUM_TITLE}" "$(t "================= Xray 服务器部署完成（Linux） =================" "================= Xray server deployed (Linux) =================")" "${COLOR_RESET}"
-printf "%s%s%s%s\n\n" "${COLOR_SUM_TITLE}" "$(t "服务器公网 IP: " "Server public IP: ")" "${public_ip}" "${COLOR_RESET}"
+printf "%s%s%s%s\n" "${COLOR_SUM_TITLE}" "$(t "服务器公网 IP: " "Server public IP: ")" "${public_ip}" "${COLOR_RESET}"
+printf "%s%s%s%s\n\n" "${COLOR_SUM_TITLE}" "$(t "部署方案: " "Profile: ")" "${PROFILE_DISPLAY_NAME}" "${COLOR_RESET}"
 
-printf "%s%s%s\n" "${COLOR_SUM_SECTION}" "$(t "[1] VLESS Reality（主节点）" "[1] VLESS Reality (main node)")" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口:" "Port:")" "${REALITY_PORT}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "流控:" "Flow:")" "xtls-rprx-vision" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "目标站:" "Dest:")" "${REALITY_DEST}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "SNI:" "${REALITY_SERVER_NAME}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "shortId:" "${REALITY_SHORT_ID}" "${COLOR_RESET}"
-printf "%s  %-11s%s\n" "${COLOR_SUM_LABEL}" "$(t "公钥:" "publicKey:")" "${COLOR_RESET}"
-printf "%s    %s%s\n" "${COLOR_SUM_HIGHLIGHT}" "${reality_pub}" "${COLOR_RESET}"
-printf "%s  %s" "${COLOR_SUM_LABEL}" "${COLOR_RESET}"
-printf "%s%s%s\n" "${COLOR_SUM_URL}" "${vless_url}" "${COLOR_RESET}"
+# Print summary based on profile
+case "$PROFILE" in
+  reality-kcp|reality-only)
+    printf "%s%s%s\n" "${COLOR_SUM_SECTION}" "$(t "[1] VLESS Reality" "[1] VLESS Reality")" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口:" "Port:")" "${REALITY_PORT}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "流控:" "Flow:")" "xtls-rprx-vision" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "目标站:" "Dest:")" "${REALITY_DEST}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "SNI:" "${REALITY_SERVER_NAME}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "shortId:" "${REALITY_SHORT_ID}" "${COLOR_RESET}"
+    printf "%s  %-11s%s\n" "${COLOR_SUM_LABEL}" "$(t "公钥:" "publicKey:")" "${COLOR_RESET}"
+    printf "%s    %s%s\n" "${COLOR_SUM_HIGHLIGHT}" "${reality_pub}" "${COLOR_RESET}"
+    if [[ "$PROFILE" == "reality-kcp" ]]; then
+      printf "\n%s%s%s\n" "${COLOR_SUM_SECTION}" "$(t "[2] VMess mKCP + wechat-video" "[2] VMess mKCP + wechat-video")" "${COLOR_RESET}"
+      printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+      printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口(UDP):" "Port(UDP):")" "${VMESS_KCP_PORT}" "${COLOR_RESET}"
+      printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
+    fi
+    ;;
+  *dynamic*)
+    printf "%s%s%s\n" "${COLOR_SUM_SECTION}" "${PROFILE_DISPLAY_NAME}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口范围:" "Port Range:")" "20000-30000" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
+    ;;
+  shadowsocks)
+    printf "%s%s%s\n" "${COLOR_SUM_SECTION}" "Shadowsocks (AES-256-GCM)" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口:" "Port:")" "${MAIN_PORT}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "密码:" "Password:")" "${UUID}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "加密:" "Encryption:")" "aes-256-gcm" "${COLOR_RESET}"
+    ;;
+  *)
+    printf "%s%s%s\n" "${COLOR_SUM_SECTION}" "${PROFILE_DISPLAY_NAME}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口:" "Port:")" "${MAIN_PORT:-${REALITY_PORT:-${VMESS_KCP_PORT}}}" "${COLOR_RESET}"
+    printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID/Password:" "${UUID}" "${COLOR_RESET}"
+    if [[ "$PROFILE" == *tls* ]]; then
+      printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "TLS:" "TLS:")" "$(t "已启用（自签名证书）" "Enabled (self-signed)")" "${COLOR_RESET}"
+    fi
+    ;;
+esac
 
-printf "\n%s%s%s\n" "${COLOR_SUM_SECTION}" "$(t "[2] VMess mKCP + wechat-video（备用，仅在 TCP/Reality 不可用时尝试；注意部分运营商/网络可能限制 UDP）" "[2] VMess mKCP + wechat-video (backup, only try when TCP/Reality is not available; UDP may be limited by ISP/QoS)")" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "地址:" "Address:")" "${public_ip}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口(UDP):" "Port(UDP):")" "${VMESS_KCP_PORT}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID:" "${UUID}" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "传输:" "Transport:")" "kcp" "${COLOR_RESET}"
-printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "伪装头:" "Header:")" "wechat-video" "${COLOR_RESET}"
-printf "%s  %s" "${COLOR_SUM_LABEL}" "${COLOR_RESET}"
-printf "%s%s%s\n" "${COLOR_SUM_URL}" "${vmess_url}" "${COLOR_RESET}"
+printf "\n%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "订阅链接:" "URLs:")" "${COLOR_RESET}"
+for url in "${urls[@]}"; do
+  printf "%s%s%s\n" "${COLOR_SUM_URL}" "$url" "${COLOR_RESET}"
+done
 
 printf "\n%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "链接文件:   ${LINKS_FILE}" "links file:   ${LINKS_FILE}")" "${COLOR_RESET}"
 printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "配置文件:  ${CONFIG_PATH}" "config file:  ${CONFIG_PATH}")" "${COLOR_RESET}"

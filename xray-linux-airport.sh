@@ -518,6 +518,24 @@ if command -v select_profile_interactive >/dev/null 2>&1; then
   select_profile_interactive
 fi
 
+# Handle special maintenance profiles selected interactively
+case "$PROFILE" in
+  uninstall-all)
+    uninstall_xray
+    exit 0
+    ;;
+  uninstall-keep-config|uninstall-config)
+    uninstall_xray_config_only
+    exit 0
+    ;;
+  update-core)
+    UPDATE_CORE_ONLY="true"
+    KEEP_CONFIG="true"
+    # Set a dummy profile to ensure variable expansion works if needed, though it shouldn't be used
+    PROFILE="reality-kcp" 
+    ;;
+esac
+
 CORE_REPO="XTLS/Xray-core"
 CORE_FILE_NAME="Xray-linux-64.zip"
 CORE_BIN_DIR="${BASE_DIR}/bin"

@@ -38,7 +38,17 @@ generate_self_signed_cert() {
 #################################
 
 select_profile_interactive() {
-  if [[ -z "$PROFILE" && -t 0 && -t 1 ]]; then
+  local input_file="/dev/stdin"
+  local interactive_mode="false"
+
+  if [[ -t 0 ]]; then
+    interactive_mode="true"
+  elif [[ -e /dev/tty ]]; then
+    interactive_mode="true"
+    input_file="/dev/tty"
+  fi
+
+  if [[ -z "$PROFILE" && "$interactive_mode" == "true" ]]; then
     log_info "$(t "请选择要部署的协议方案：" "Please select the protocol scheme to deploy:")"
     echo ""
     echo "  1)  VLESS Reality + VMess mKCP [$(t "默认，最稳定" "Default, Most Stable")]"
@@ -61,8 +71,13 @@ select_profile_interactive() {
     echo "  18) VMess mKCP Dynamic Port [$(t "动态端口 20000-30000" "Dynamic ports 20000-30000")]"
     echo "  19) VMess QUIC Dynamic Port [$(t "动态端口 20000-30000" "Dynamic ports 20000-30000")]"
     echo ""
-    printf "$(t "请输入选项编号 [1-19，默认: 1]: " "Enter option number [1-19, default: 1]: ")"
-    read -r choice
+    echo "  ------------------------"
+    echo "  30) $(t "仅更新 Xray 内核" "Update Xray Core Only")"
+    echo "  31) $(t "卸载 Xray (保留配置)" "Uninstall Xray (Keep Config)")"
+    echo "  32) $(t "彻底卸载 Xray" "Uninstall Xray (Remove All)")"
+    echo ""
+    printf "$(t "请输入选项编号 [1-19/30-32，默认: 1]: " "Enter option number [1-19/30-32, default: 1]: ")"
+    read -r choice < "$input_file"
     
     case "${choice:-1}" in
       1)  PROFILE="reality-kcp" ;;
@@ -84,6 +99,9 @@ select_profile_interactive() {
       17) PROFILE="vmess-tcp-dynamic" ;;
       18) PROFILE="vmess-mkcp-dynamic" ;;
       19) PROFILE="vmess-quic-dynamic" ;;
+      30) PROFILE="update-core" ;;
+      31) PROFILE="uninstall-keep-config" ;;
+      32) PROFILE="uninstall-all" ;;
       *)  PROFILE="reality-kcp" ;;
     esac
     

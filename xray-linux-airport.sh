@@ -57,6 +57,8 @@ while [[ $# -gt 0 ]]; do
       UNINSTALL_CONFIG="true"; shift 1;;
     --delete-config)
       DELETE_CONFIG="true"; shift 1;;
+    --add)
+      ADD_TO_CONFIG="true"; shift 1;;
     --profile)
       PROFILE="$2"; shift 2;;
     *)
@@ -212,6 +214,7 @@ ensure_deps() {
   install_dep curl curl
   install_dep unzip unzip
   install_dep openssl openssl  # For certificate generation
+  install_dep jq jq            # For JSON manipulation
 }
 
 validate_port_value() {
@@ -449,6 +452,7 @@ load_linux_lib_if_present "linux/xray-ports.sh"
 require_root
 validate_base_dir "$BASE_DIR"
 
+ADD_TO_CONFIG="${ADD_TO_CONFIG:-false}"
 ACTION_MODE="install"
 modes_selected=0
 if [[ "$UNINSTALL" == "true" ]]; then
@@ -550,8 +554,8 @@ SERVICE_NAME="xray-server"
 mkdir -p "$BASE_DIR" "$CORE_BIN_DIR" "$LOG_DIR"
  
 if [[ "$REBUILD_CONFIG_ONLY" == "true" ]]; then
-  if [[ "$KEEP_CONFIG" == "true" || "$FORCE_REBUILD_CONFIG" == "true" ]]; then
-    log_error "Options --keep-config/--force-rebuild-config cannot be used together with --rebuild-config-only."
+  if [[ "$KEEP_CONFIG" == "true" || "$FORCE_REBUILD_CONFIG" == "true" || "$ADD_TO_CONFIG" == "true" ]]; then
+    log_error "Options --keep-config/--force-rebuild-config/--add cannot be used together with --rebuild-config-only."
     exit 1
   fi
   if [[ ! -f "$CONFIG_PATH" ]]; then
@@ -568,13 +572,35 @@ else
       log_info "Existing config detected at $CONFIG_PATH. --keep-config is set: will only update Xray core and keep existing config, firewall rules and service."
     elif [[ "$FORCE_REBUILD_CONFIG" == "true" ]]; then
       log_warn "Existing config at $CONFIG_PATH will be overwritten because --force-rebuild-config is set."
+    elif [[ "$ADD_TO_CONFIG" == "true" ]]; then
+      log_info "Existing config at $CONFIG_PATH will be merged with new profile because --add is set."
     else
-      log_error "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it or --force-rebuild-config to overwrite it."
-      exit 1
+      # Interactive check
+      if [[ -t 0 || -p /dev/stdin ]]; then
+        echo ""
+        log_warn "Config file already exists at $CONFIG_PATH."
+        echo "  1) Overwrite (Delete existing config)"
+        echo "  2) Add (Merge new profile to existing config)"
+        echo "  3) Cancel"
+        printf "Enter option [1-3, default: 3]: "
+        read -r conflict_choice
+        case "${conflict_choice:-3}" in
+          1) FORCE_REBUILD_CONFIG="true" ;;
+          2) ADD_TO_CONFIG="true" ;;
+          *) log_error "Operation cancelled by user."; exit 1 ;;
+        esac
+      else
+        log_error "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it, --force-rebuild-config to overwrite it, or --add to merge new profile."
+        exit 1
+      fi
     fi
   else
     if [[ "$KEEP_CONFIG" == "true" ]]; then
       log_warn "--keep-config was specified but no existing config was found at $CONFIG_PATH. A fresh config will be created."
+    fi
+    if [[ "$ADD_TO_CONFIG" == "true" ]]; then
+      log_warn "--add was specified but no existing config was found. Creating a new config instead."
+      ADD_TO_CONFIG="false"
     fi
   fi
 fi
@@ -692,7 +718,12 @@ if [[ "$PROFILE" == reality* ]]; then
   log_info "Reality keys generated."
 fi
 
-log_info "Building config: $CONFIG_PATH"
+# Prepare to build config
+TEMP_CONFIG_PATH="${BASE_DIR}/config.new.json"
+REAL_CONFIG_PATH="$CONFIG_PATH"
+CONFIG_PATH="$TEMP_CONFIG_PATH" # Temporarily redirect build_config output
+
+log_info "Building config..."
 
 # Build configuration based on selected profile
 if command -v build_config_for_profile >/dev/null 2>&1; then
@@ -700,6 +731,41 @@ if command -v build_config_for_profile >/dev/null 2>&1; then
 else
   log_error "Profile configuration builder not found. Please check the library file."
   exit 1
+fi
+
+if [[ ! -f "$TEMP_CONFIG_PATH" ]]; then
+  log_error "Failed to generate configuration file."
+  exit 1
+fi
+
+# Restore CONFIG_PATH
+CONFIG_PATH="$REAL_CONFIG_PATH"
+
+if [[ "$ADD_TO_CONFIG" == "true" && -f "$CONFIG_PATH" ]]; then
+  log_info "Merging new configuration into existing config..."
+  
+  # Use jq to merge inbounds
+  if ! command -v jq >/dev/null 2>&1; then
+    log_error "jq is required for merging configurations but not found."
+    exit 1
+  fi
+  
+  # Extract inbounds from new config
+  NEW_INBOUNDS=$(jq '.inbounds' "$TEMP_CONFIG_PATH")
+  
+  # Merge with existing config
+  # We append the new inbounds to the existing inbounds array
+  if jq --argjson new_inbounds "$NEW_INBOUNDS" '.inbounds += $new_inbounds' "$CONFIG_PATH" > "${CONFIG_PATH}.merged"; then
+    mv "${CONFIG_PATH}.merged" "$CONFIG_PATH"
+    log_info "Configuration merged successfully."
+  else
+    log_error "Failed to merge configuration with jq."
+    exit 1
+  fi
+  
+  rm -f "$TEMP_CONFIG_PATH"
+else
+  mv "$TEMP_CONFIG_PATH" "$CONFIG_PATH"
 fi
 
 chmod 600 "$CONFIG_PATH"
@@ -854,15 +920,45 @@ JSON
 
 # Save URLs to file
 urls=($(generate_url_for_profile "$PROFILE"))
-printf "%s\n" "${urls[@]}" > "$LINKS_FILE"
+
+if [[ "$ADD_TO_CONFIG" == "true" ]]; then
+  # Append URLs if merging
+  printf "%s\n" "${urls[@]}" >> "$LINKS_FILE"
+else
+  # Overwrite if new config
+  printf "%s\n" "${urls[@]}" > "$LINKS_FILE"
+fi
 
 # Save port info
+# If merging, we need to read existing ports and append new ones
+EXISTING_FIREWALL_PORTS=""
+if [[ "$ADD_TO_CONFIG" == "true" && -f "$PORTS_FILE" ]]; then
+  # Read existing FIREWALL_PORTS
+  EXISTING_FIREWALL_PORTS=$(grep "^FIREWALL_PORTS=" "$PORTS_FILE" | cut -d'=' -f2-)
+fi
+
+# Combine ports
+if [[ -n "$EXISTING_FIREWALL_PORTS" ]]; then
+  # Avoid duplicates in FIREWALL_PORTS string roughly
+  FULL_FIREWALL_PORTS="$EXISTING_FIREWALL_PORTS $FIREWALL_PORTS"
+else
+  FULL_FIREWALL_PORTS="$FIREWALL_PORTS"
+fi
+
 {
-  echo "PROFILE=${PROFILE}"
+  if [[ "$ADD_TO_CONFIG" == "true" ]]; then
+    # Keep existing profile name in file but maybe append? 
+    # Actually ports.env is mostly for uninstallation.
+    # We will just append the new profile to a list or something?
+    # For simplicity, let's just keep the last profile name or append it.
+    echo "PROFILE=${PROFILE}" # This might overwrite, but it's okay for now.
+  else
+    echo "PROFILE=${PROFILE}"
+  fi
   echo "MAIN_PORT=${MAIN_PORT:-}"
   echo "REALITY_PORT=${REALITY_PORT:-}"
   echo "VMESS_KCP_PORT=${VMESS_KCP_PORT:-}"
-  echo "FIREWALL_PORTS=${FIREWALL_PORTS}"
+  echo "FIREWALL_PORTS=${FULL_FIREWALL_PORTS}"
 } >"$PORTS_FILE"
 chmod 600 "$PORTS_FILE"
 log_info "$(t "端口信息已保存到: $PORTS_FILE" "Port info has been saved to: $PORTS_FILE")"

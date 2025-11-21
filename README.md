@@ -96,6 +96,7 @@ cd D:\GitHub\Xray_Script
 | `--core-version <ver>` | `CORE_VERSION` | 指定 Xray 版本，如 `v1.8.4` |
 | `--keep-config` | `KEEP_CONFIG=true` | 仅更新内核，保留现有配置 |
 | `--force-rebuild-config` | `FORCE_REBUILD_CONFIG=true` | 强制覆盖现有配置 |
+| `--add` | `ADD_TO_CONFIG=true` | 将新协议方案合并添加到现有配置中 |
 | `--uninstall` | - | 完整卸载 Xray 及配置 |
 
 **示例：**
@@ -105,6 +106,9 @@ curl -fsSL ... | sudo bash -s -- --reality-port 443 --uuid "your-uuid-here"
 
 # 仅更新内核，不改配置
 curl -fsSL ... | sudo bash -s -- --keep-config
+
+# 添加新协议到现有配置
+curl -fsSL ... | sudo bash -s -- --profile vmess-ws-tls --add
 ```
 
 ### Windows 参数

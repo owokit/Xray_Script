@@ -606,23 +606,33 @@ ensure_deps
 # Ensure base directory exists early for supporting files
 mkdir -p "$BASE_DIR"
 
-# Load profile library
+# Load profile library (always try to fetch latest from GitHub first)
+PROFILE_LIB_URL="https://github.com/owokit/Xray_Script/raw/main/xray-profiles-lib.sh"
 PROFILE_LIB="${BASE_DIR}/xray-profiles-lib.sh"
-if [[ ! -f "$PROFILE_LIB" ]]; then
-  PROFILE_LIB="$(dirname "$0")/xray-profiles-lib.sh"
-fi
-if [[ ! -f "$PROFILE_LIB" ]]; then
-  log_info "Profile library not found locally, downloading from GitHub..."
-  PROFILE_LIB="${BASE_DIR}/xray-profiles-lib.sh"
-  if ! curl -fsSL "https://github.com/owokit/Xray_Script/raw/main/xray-profiles-lib.sh" -o "$PROFILE_LIB"; then
-    log_error "Failed to download profile library. Please check your network or download xray-profiles-lib.sh manually to $BASE_DIR."
-    exit 1
+
+mkdir -p "$BASE_DIR"
+
+download_ok="false"
+for attempt in 1 2 3; do
+  if curl -fsSL "$PROFILE_LIB_URL" -o "$PROFILE_LIB"; then
+    download_ok="true"
+    break
+  fi
+  log_warn "$(t "第 ${attempt} 次从 GitHub 下载 xray-profiles-lib.sh 失败" "Failed to download xray-profiles-lib.sh from GitHub (attempt ${attempt}).")"
+  sleep 2
+done
+
+if [[ "$download_ok" != "true" ]]; then
+  log_warn "$(t "多次从 GitHub 下载配置库失败，将尝试使用本地副本（如果存在）。" "Failed to download profile library from GitHub after multiple attempts; falling back to local copy (if available).")"
+  if [[ ! -f "$PROFILE_LIB" ]]; then
+    PROFILE_LIB="$(dirname "$0")/xray-profiles-lib.sh"
   fi
 fi
+
 if [[ -f "$PROFILE_LIB" ]]; then
   source "$PROFILE_LIB"
 else
-  log_error "Profile library not found. Please check that xray-profiles-lib.sh exists under $BASE_DIR."
+  log_error "Profile library not found. Please check that xray-profiles-lib.sh exists under $BASE_DIR or alongside this script."
   exit 1
 fi
 

@@ -431,17 +431,69 @@ delete_config_entry_interactive() {
     return 1
   fi
 
-  local idx
-  printf "Enter the index of the entry to delete [0-%d]: " "$((count-1))"
-  read -r idx < "$input_file"
+  local selection
+  printf "Enter indices to delete (e.g. 0,2,4 or 0-2,4) [0-%d]: " "$(($count-1))"
+  read -r selection < "$input_file"
 
-  if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 0 || idx >= count )); then
-    log_error "Invalid index: $idx. Aborting delete operation."
+  if [[ -z "$selection" ]]; then
+    log_error "No indices entered. Aborting delete operation."
     return 1
   fi
 
+  if [[ "$selection" == "q" || "$selection" == "Q" ]]; then
+    log_error "Operation cancelled by user."
+    return 1
+  fi
+
+  local tokens_str="$selection"
+  tokens_str="${tokens_str// /,}"
+
+  local -a indices
+  local token
+  IFS=',' read -r -a tokens <<< "$tokens_str"
+  for token in "${tokens[@]}"; do
+    [[ -z "$token" ]] && continue
+
+    if [[ "$token" =~ ^[0-9]+$ ]]; then
+      local idx="$token"
+      if (( idx < 0 || idx >= count )); then
+        log_error "Invalid index: $idx. Aborting delete operation."
+        return 1
+      fi
+      indices+=("$idx")
+    elif [[ "$token" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      local start="${BASH_REMATCH[1]}" end="${BASH_REMATCH[2]}" i
+      if (( start > end )); then
+        local tmp="$start"; start="$end"; end="$tmp"
+      fi
+      for (( i=start; i<=end; i++ )); do
+        if (( i < 0 || i >= count )); then
+          log_error "Invalid index in range: $i (from $token). Aborting delete operation."
+          return 1
+        fi
+        indices+=("$i")
+      done
+    else
+      log_error "Invalid index expression: $token. Use forms like 0,2,4 or 0-2,4."
+      return 1
+    fi
+  done
+
+  if (( ${#indices[@]} == 0 )); then
+    log_error "No valid indices parsed from input. Aborting delete operation."
+    return 1
+  fi
+
+  local idx_json idx_display
+  idx_json="$(printf '%s\n' "${indices[@]}" | jq -s 'sort | unique')" || {
+    log_error "Failed to normalize indices list."
+    return 1
+  }
+
+  idx_display="$(printf '%s' "$idx_json" | jq -r 'map(tostring) | join(",")')" || idx_display=""
+
   echo ""
-  log_warn "You are about to delete inbound entry index $idx from $config_path."
+  log_warn "You are about to delete inbound entry indices: ${idx_display:-$selection} from $config_path."
   printf "Type 'yes' to confirm: "
   local confirm
   read -r confirm < "$input_file"
@@ -450,8 +502,8 @@ delete_config_entry_interactive() {
     return 1
   fi
 
-  if ! jq --argjson idx "$idx" 'if (.inbounds | length) > 0 then .inbounds |= (.[0:$idx] + .[$idx+1:]) else . end' "$config_path" >"${config_path}.tmp"; then
-    log_error "Failed to delete entry index $idx from $config_path using jq."
+  if ! jq --argjson idxs "$idx_json" '(.inbounds // []) as $in | .inbounds = (if ($in|length) == 0 then $in else [ range(0; $in|length) as $i | select( ($idxs|index($i))|not ) | $in[$i] ] end)' "$config_path" >"${config_path}.tmp"; then
+    log_error "Failed to delete selected entries from $config_path using jq."
     rm -f "${config_path}.tmp"
     return 1
   fi
@@ -459,7 +511,7 @@ delete_config_entry_interactive() {
   mv "${config_path}.tmp" "$config_path"
   chmod 600 "$config_path"
 
-  log_info "Deleted inbound entry index $idx from $config_path."
+  log_info "Deleted inbound entry indices: ${idx_display:-$selection} from $config_path."
   log_warn "links.txt and ports.env were not updated automatically. Please regenerate or adjust them manually if needed."
 
   if command -v systemctl >/dev/null 2>&1; then

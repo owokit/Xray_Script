@@ -576,14 +576,24 @@ else
       log_info "Existing config at $CONFIG_PATH will be merged with new profile because --add is set."
     else
       # Interactive check
-      if [[ -t 0 || -p /dev/stdin ]]; then
+      input_file="/dev/stdin"
+      interactive_mode="false"
+
+      if [[ -t 0 ]]; then
+        interactive_mode="true"
+      elif [[ -e /dev/tty ]]; then
+        interactive_mode="true"
+        input_file="/dev/tty"
+      fi
+
+      if [[ "$interactive_mode" == "true" ]]; then
         echo ""
         log_warn "Config file already exists at $CONFIG_PATH."
         echo "  1) Overwrite (Delete existing config)"
         echo "  2) Add (Merge new profile to existing config)"
         echo "  3) Cancel"
         printf "Enter option [1-3, default: 3]: "
-        read -r conflict_choice
+        read -r conflict_choice < "$input_file"
         case "${conflict_choice:-3}" in
           1) FORCE_REBUILD_CONFIG="true" ;;
           2) ADD_TO_CONFIG="true" ;;

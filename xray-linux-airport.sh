@@ -493,14 +493,7 @@ delete_config_entry_interactive() {
   idx_display="$(printf '%s' "$idx_json" | jq -r 'map(tostring) | join(",")')" || idx_display=""
 
   echo ""
-  log_warn "You are about to delete inbound entry indices: ${idx_display:-$selection} from $config_path."
-  printf "Type 'yes' to confirm: "
-  local confirm
-  read -r confirm < "$input_file"
-  if [[ "$confirm" != "yes" ]]; then
-    log_error "Operation cancelled by user."
-    return 1
-  fi
+  log_warn "Deleting inbound entry indices: ${idx_display:-$selection} from $config_path."
 
   if ! jq --argjson idxs "$idx_json" '(.inbounds // []) as $in | .inbounds = (if ($in|length) == 0 then $in else [ range(0; $in|length) as $i | select( ($idxs|index($i))|not ) | $in[$i] ] end)' "$config_path" >"${config_path}.tmp"; then
     log_error "Failed to delete selected entries from $config_path using jq."

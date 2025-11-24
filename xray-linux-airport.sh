@@ -650,10 +650,10 @@ obtain_letsencrypt_cert() {
   if command -v getent >/dev/null 2>&1; then
     resolved_ip="$(getent hosts "$domain" | awk '{print $1; exit}')"
   fi
-  if [[ -z "$resolved_ip" && command -v dig >/dev/null 2>&1 ]]; then
+  if [[ -z "$resolved_ip" ]] && command -v dig >/dev/null 2>&1; then
     resolved_ip="$(dig +short A "$domain" | head -n1)"
   fi
-  if [[ -z "$resolved_ip" && command -v nslookup >/dev/null 2>&1 ]]; then
+  if [[ -z "$resolved_ip" ]] && command -v nslookup >/dev/null 2>&1; then
     resolved_ip="$(nslookup "$domain" 2>/dev/null | awk '/^Address: /{print $2; exit}')"
   fi
   if [[ -z "$resolved_ip" ]]; then

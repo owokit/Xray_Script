@@ -282,6 +282,7 @@ cleanup_firewall_rules_from_ports_file() {
       if [[ "$port_spec" =~ ^([0-9]+(-[0-9]+)?)/(.+)$ ]]; then
         port="${BASH_REMATCH[1]}"
         proto="${BASH_REMATCH[3]}"
+        if [[ "$port" == *-* ]]; then port="${port//-/:}"; fi
         ufw delete allow ${port}/${proto} || true
       fi
     done
@@ -768,6 +769,8 @@ if [[ "$ADD_TO_CONFIG" == "true" && -f "$CONFIG_PATH" ]]; then
   if jq --argjson new_inbounds "$NEW_INBOUNDS" '.inbounds += $new_inbounds' "$CONFIG_PATH" > "${CONFIG_PATH}.merged"; then
     mv "${CONFIG_PATH}.merged" "$CONFIG_PATH"
     log_info "Configuration merged successfully."
+    local inbounds_count=$(jq '.inbounds | length' "$CONFIG_PATH")
+    log_info "Total inbounds in config: $inbounds_count"
   else
     log_error "Failed to merge configuration with jq."
     exit 1
@@ -799,6 +802,7 @@ if [[ -n "$FIREWALL_PORTS" ]]; then
       if [[ "$port_spec" =~ ^([0-9]+(-[0-9]+)?)/(.+)$ ]]; then
         port="${BASH_REMATCH[1]}"
         proto="${BASH_REMATCH[3]}"
+        if [[ "$port" == *-* ]]; then port="${port//-/:}"; fi
         ufw allow ${port}/${proto} || true
       fi
     done
@@ -889,8 +893,26 @@ JSON
     *vmess*|*vless*|*trojan*|shadowsocks|kcp-only)
       # For other protocols, generate appropriate URLs
       local port="${MAIN_PORT:-${REALITY_PORT:-${VMESS_KCP_PORT}}}"
+      
+      # Fix for dynamic port profiles: ensure port is within range 20000-30000
+      if [[ "$profile" == *dynamic* ]]; then
+        port=$((RANDOM % 10000 + 20000))
+      fi
+
       case "$profile" in
         *vmess*)
+          local net="tcp" type="none" path="" host="" tls=""
+          
+          if [[ "$profile" == *tls* ]]; then tls="tls"; fi
+          
+          case "$profile" in
+            *mkcp*) net="kcp"; type="wechat-video" ;;
+            *quic*) net="quic"; type="none" ;;
+            *ws*)   net="ws"; path="/ws" ;;
+            *grpc*) net="grpc"; path="grpc" ;;
+            *h2*)   net="h2"; path="/h2"; host="example.com" ;;
+          esac
+
           local vmess_json=$(cat <<JSON
 {
   "v": "2",
@@ -900,11 +922,11 @@ JSON
   "id": "${UUID}",
   "aid": "0",
   "scy": "auto",
-  "net": "tcp",
-  "type": "none",
-  "host": "",
-  "path": "",
-  "tls": "$([[ "$profile" == *tls* ]] && echo "tls" || echo "")",
+  "net": "${net}",
+  "type": "${type}",
+  "host": "${host}",
+  "path": "${path}",
+  "tls": "${tls}",
   "sni": "",
   "alpn": "",
   "fp": ""
@@ -915,7 +937,18 @@ JSON
           echo "vmess://${vmess_b64}"
           ;;
         *trojan*)
-          echo "trojan://${UUID}@${public_ip}:${port}#xray.owokit.com-${PROFILE_DISPLAY_NAME}"
+          local query_args=""
+          if [[ "$profile" == *ws* ]]; then
+            query_args="?security=tls&type=ws&path=/trojan"
+          elif [[ "$profile" == *grpc* ]]; then
+            query_args="?security=tls&type=grpc&serviceName=grpc"
+          elif [[ "$profile" == *h2* ]]; then
+            query_args="?security=tls&type=h2&path=/trojan"
+          else
+             # Default generic trojan (tcp+tls)
+             query_args="?security=tls&type=tcp"
+          fi
+          echo "trojan://${UUID}@${public_ip}:${port}${query_args}#xray.owokit.com-${PROFILE_DISPLAY_NAME}"
           ;;
         shadowsocks)
           # Shadowsocks URL format: ss://base64(method:password)@server:port#name

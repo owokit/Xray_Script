@@ -732,6 +732,15 @@ if [[ "$REBUILD_CONFIG_ONLY" == "true" ]]; then
   fi
 else
   if [[ -f "$CONFIG_PATH" ]]; then
+    if [[ "$KEEP_CONFIG" != "true" && "$FORCE_REBUILD_CONFIG" != "true" && "$ADD_TO_CONFIG" != "true" ]]; then
+      inbounds_count=""
+      if inbounds_count="$(jq -r '(.inbounds // []) | length' "$CONFIG_PATH" 2>/dev/null)"; then
+        if [[ "$inbounds_count" -eq 0 ]]; then
+          log_warn "$(t "检测到已有配置文件 $CONFIG_PATH，但其中没有任何入站配置，将视为全新安装并直接重建配置。" "Config file found at $CONFIG_PATH but contains no inbound entries; treating as fresh install and rebuilding config without asking.")"
+          FORCE_REBUILD_CONFIG="true"
+        fi
+      fi
+    fi
     if [[ "$KEEP_CONFIG" == "true" && "$FORCE_REBUILD_CONFIG" == "true" ]]; then
       log_error "Both --keep-config and --force-rebuild-config were specified. Please choose only one."
       exit 1

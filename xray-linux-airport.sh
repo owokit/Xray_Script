@@ -589,19 +589,19 @@ else
 
       if [[ "$interactive_mode" == "true" ]]; then
         echo ""
-        log_warn "Config file already exists at $CONFIG_PATH."
-        echo "  1) Overwrite (Delete existing config)"
-        echo "  2) Add (Merge new profile to existing config)"
-        echo "  3) Cancel"
-        printf "Enter option [1-3, default: 3]: "
+        log_warn "$(t "检测到已有配置文件: $CONFIG_PATH" "Config file already exists at $CONFIG_PATH.")"
+        echo "  1) $(t "追加（向现有配置中合并新方案）" "Add (Merge new profile to existing config)")"
+        echo "  2) $(t "覆盖（删除现有配置并重建）" "Overwrite (Delete existing config)")"
+        echo "  3) $(t "取消操作" "Cancel")"
+        printf "$(t "请输入选项 [1-3，默认: 1]: " "Enter option [1-3, default: 1]: ")"
         read -r conflict_choice < "$input_file"
-        case "${conflict_choice:-3}" in
-          1) FORCE_REBUILD_CONFIG="true" ;;
-          2) ADD_TO_CONFIG="true" ;;
-          *) log_error "Operation cancelled by user."; exit 1 ;;
+        case "${conflict_choice:-1}" in
+          1) ADD_TO_CONFIG="true" ;;
+          2) FORCE_REBUILD_CONFIG="true" ;;
+          *) log_error "$(t "操作已取消。" "Operation cancelled by user.")"; exit 1 ;;
         esac
       else
-        log_error "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it, --force-rebuild-config to overwrite it, or --add to merge new profile."
+        log_error "$(t "检测到已有配置文件 $CONFIG_PATH。请使用 --keep-config 保留配置，--force-rebuild-config 覆盖配置，或 --add 合并新方案。" "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it, --force-rebuild-config to overwrite it, or --add to merge new profile.")"
         exit 1
       fi
     fi
@@ -753,11 +753,11 @@ fi
 CONFIG_PATH="$REAL_CONFIG_PATH"
 
 if [[ "$ADD_TO_CONFIG" == "true" && -f "$CONFIG_PATH" ]]; then
-  log_info "Merging new configuration into existing config..."
+  log_info "$(t "正在将新配置合并到现有配置..." "Merging new configuration into existing config...")"
   
   # Use jq to merge inbounds
   if ! command -v jq >/dev/null 2>&1; then
-    log_error "jq is required for merging configurations but not found."
+    log_error "$(t "合并配置需要 jq，但系统中未找到该命令。" "jq is required for merging configurations but not found.")"
     exit 1
   fi
   
@@ -768,11 +768,11 @@ if [[ "$ADD_TO_CONFIG" == "true" && -f "$CONFIG_PATH" ]]; then
   # We append the new inbounds to the existing inbounds array
   if jq --argjson new_inbounds "$NEW_INBOUNDS" '.inbounds += $new_inbounds' "$CONFIG_PATH" > "${CONFIG_PATH}.merged"; then
     mv "${CONFIG_PATH}.merged" "$CONFIG_PATH"
-    log_info "Configuration merged successfully."
-    local inbounds_count=$(jq '.inbounds | length' "$CONFIG_PATH")
-    log_info "Total inbounds in config: $inbounds_count"
+    log_info "$(t "配置合并成功。" "Configuration merged successfully.")"
+    inbounds_count=$(jq '.inbounds | length' "$CONFIG_PATH")
+    log_info "$(t "当前配置中的入站数量: $inbounds_count" "Total inbounds in config: $inbounds_count")"
   else
-    log_error "Failed to merge configuration with jq."
+    log_error "$(t "使用 jq 合并配置失败。" "Failed to merge configuration with jq.")"
     exit 1
   fi
   

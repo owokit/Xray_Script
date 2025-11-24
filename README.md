@@ -89,26 +89,41 @@ cd D:\GitHub\Xray_Script
 | `--profile <name>` | `PROFILE` | 协议方案名称（见下文列表），默认交互式选择或 `reality-kcp` |
 | `--reality-port <port>` | `REALITY_PORT` | Reality TCP 端口，默认随机 |
 | `--vmess-kcp-port <port>` | `VMESS_KCP_PORT` | VMess UDP 端口，默认随机 |
+| `--main-port <port>` | `MAIN_PORT` | 非 Reality 协议的主端口（VMess/VLESS/Trojan/Shadowsocks 等），默认随机 |
 | `--uuid <uuid>` | `UUID` | 自定义 UUID，默认随机生成 |
-| `--reality-dest <host:port>` | `REALITY_DEST` | 伪装目标，默认 `cloudflare.com:443` |
-| `--reality-server-name <domain>` | `REALITY_SERVER_NAME` | SNI 域名，默认 `cloudflare.com` |
+| `--core-version <ver>` | `CORE_VERSION` | 指定 Xray 版本，如 `v1.8.4`，为空则使用最新版本 |
+| `--proxy <url>` | `PROXY` | 下载 Xray 时使用的代理，如 `http://127.0.0.1:1080` |
+| `--reality-dest <host:port>` | `REALITY_DEST` | Reality 伪装目标，默认 `cloudflare.com:443` |
+| `--reality-server-name <domain>` | `REALITY_SERVER_NAME` | Reality SNI 域名，默认 `cloudflare.com` |
+| `--reality-short-id <hex>` | `REALITY_SHORT_ID` | Reality shortId（2–16 位十六进制），为空则随机生成 |
 | `--base-dir <path>` | `BASE_DIR` | 安装目录，默认 `/opt/xray` |
-| `--core-version <ver>` | `CORE_VERSION` | 指定 Xray 版本，如 `v1.8.4` |
-| `--keep-config` | `KEEP_CONFIG=true` | 仅更新内核，保留现有配置 |
-| `--force-rebuild-config` | `FORCE_REBUILD_CONFIG=true` | 强制覆盖现有配置 |
-| `--add` | `ADD_TO_CONFIG=true` | 将新协议方案合并添加到现有配置中 |
-| `--uninstall` | - | 完整卸载 Xray 及配置 |
+| `--tls-cert-mode <mode>` | `TLS_CERT_MODE` | TLS 证书模式：`self-signed` / `letsencrypt` / `custom` |
+| `--tls-domain <domain>` | `TLS_DOMAIN` | TLS 使用的域名（Let’s Encrypt 或自有证书模式必填） |
+| `--keep-config` | `KEEP_CONFIG=true` | 仅更新内核，保留现有配置、防火墙与 systemd 服务 |
+| `--force-rebuild-config` | `FORCE_REBUILD_CONFIG=true` | 强制覆盖现有配置，重新生成 config.json |
+| `--rebuild-config-only` | `REBUILD_CONFIG_ONLY=true` | 只重建配置文件，不下载/更新内核 |
+| `--add` | `ADD_TO_CONFIG=true` | 将新协议方案追加到现有 config.json（多入站并存） |
+| `--uninstall` | - | 完整卸载 Xray、服务、配置与防火墙规则 |
+| `--uninstall-config` | - | 卸载配置（含服务/防火墙），但保留内核与日志 |
+| `--delete-config` | - | 仅删除配置文件与链接/端口记录，不动服务与内核 |
 
 **示例：**
 ```bash
-# 指定端口和 UUID 安装
-curl -fsSL ... | sudo bash -s -- --reality-port 443 --uuid "your-uuid-here"
+# 指定端口和 UUID 安装 Reality + KCP（默认方案）
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+  | sudo bash -s -- --reality-port 443 --uuid "your-uuid-here"
 
 # 仅更新内核，不改配置
-curl -fsSL ... | sudo bash -s -- --keep-config
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+  | sudo bash -s -- --keep-config
 
-# 添加新协议到现有配置
-curl -fsSL ... | sudo bash -s -- --profile vmess-ws-tls --add
+# 添加新协议到现有配置（多入站共存）
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+  | sudo bash -s -- --profile vmess-ws-tls --add
+
+# 只重建配置，不重新下载内核
+curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+  | sudo bash -s -- --rebuild-config-only --profile shadowsocks
 ```
 
 ### Windows 参数
@@ -117,44 +132,79 @@ Windows 脚本通过 PowerShell 参数传递：
 
 | 参数 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `-Profile` | String | 仅支持 `reality-kcp` (默认), `reality-only`, `kcp-only` |
-| `-RealityPort` | Int | Reality TCP 端口 |
-| `-VmessKcpPort` | Int | VMess UDP 端口 |
-| `-UUID` | String | 自定义 UUID |
-| `-RealityDest` | String | 伪装目标 |
+| `-Profile` | String | 协议方案名称，仅支持 `reality-kcp`(默认)、`reality-only`、`kcp-only`，其他值会报错 |
+| `-RealityPort` | Int | Reality TCP 端口，默认随机可用端口 |
+| `-VmessKcpPort` | Int | VMess mKCP UDP 端口，默认随机可用端口 |
+| `-MainPort` | Int | 预留给后续多协议方案的主端口，当前三个 Profile 不使用，可忽略 |
+| `-UUID` | String | 自定义 UUID，默认随机生成 |
+| `-CoreVersion` | String | 指定 Xray 版本，如 `v1.8.4`，为空则使用最新版本 |
+| `-Proxy` | String | 下载 Xray 时使用的代理，如 `http://127.0.0.1:1080` |
+| `-RealityDest` | String | Reality 伪装目标，默认 `cloudflare.com:443` |
+| `-RealityServerName` | String | Reality SNI 域名，默认 `cloudflare.com` |
+| `-RealityShortId` | String | Reality shortId（2–16 位十六进制），为空则随机生成 |
 | `-BaseDir` | String | 安装目录，默认 `$env:SystemDrive\xray` |
-| `-KeepConfig` | Switch | 仅更新内核，保留配置 |
-| `-Uninstall` | Switch | 完整卸载 |
+| `-KeepConfig` | Switch | 仅更新内核，保留现有配置、防火墙规则与计划任务 |
+| `-ForceRebuildConfig` | Switch | 覆盖现有 config.json 并重建配置 |
+| `-RebuildConfigOnly` | Switch | 只重建配置，不重新下载内核 |
+| `-Uninstall` | Switch | 完整卸载 Xray（包含目录、计划任务、防火墙规则） |
+| `-UninstallConfig` | Switch | 卸载配置（删除 config/links 和防火墙/计划任务），但保留内核与日志 |
+| `-DeleteConfig` | Switch | 仅删除 config.json 和 links.txt，不动内核与防火墙 |
+| `-Add` | Switch | 预留给多入站合并功能，目前主脚本尚未使用，可忽略 |
 
 **示例：**
 ```powershell
-# 指定参数安装
-... | iex "& { $(irm ...) } -RealityPort 443 -Profile reality-only"
+# 在 PowerShell（管理员）中一键安装默认方案
+Set-ExecutionPolicy Bypass -Scope Process -Force; \
+  irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex
+
+# 指定端口和 Profile 安装
+irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex \
+  "-RealityPort 443 -VmessKcpPort 20000 -Profile reality-only"
+
+# 仅更新内核，不改配置
+irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex \
+  "-KeepConfig"
+
+# 卸载（保留内核和日志，仅移除配置）
+irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex \
+  "-UninstallConfig"
 ```
 
 ---
 
 ## 📦 协议方案 (Profiles)
 
-### Windows 支持的方案
-目前 Windows 脚本仅支持以下三种核心方案：
-- **`reality-kcp`** (推荐): VLESS Reality (TCP) + VMess mKCP (UDP)
-- **`reality-only`**: 仅 VLESS Reality
-- **`kcp-only`**: 仅 VMess mKCP
-
 ### Linux 支持的方案
-Linux 脚本功能更全，支持以下所有方案（交互模式下可选）：
 
-1. **`reality-kcp`** (默认推荐)
-2. **`reality-only`**
-3. **`kcp-only`**
+Linux 主脚本已接入完整 Profile 库，交互菜单中可选择以下方案（1–19）：
+
+1. **`reality-kcp`** (默认推荐): VLESS Reality (TCP) + VMess mKCP (UDP)
+2. **`reality-only`**: 仅 VLESS Reality
+3. **`kcp-only`**: 仅 VMess mKCP
 4. `vmess-tcp` / `vmess-mkcp` / `vmess-quic`
-5. `vmess-tcp-dynamic` / `vmess-mkcp-dynamic` / `vmess-quic-dynamic` (动态端口)
-6. **TLS 系列 (自动生成自签名证书):**
+5. `vmess-tcp-dynamic` / `vmess-mkcp-dynamic` / `vmess-quic-dynamic` (动态端口 20000–30000)
+6. **TLS 系列 (证书模式可选：Let’s Encrypt / 自签名 / 自有证书):**
    - `vmess-ws-tls` / `vless-ws-tls` / `trojan-ws-tls`
    - `vmess-grpc-tls` / `vless-grpc-tls` / `trojan-grpc-tls`
    - `vmess-h2-tls` / `vless-h2-tls` / `trojan-h2-tls`
 7. `shadowsocks` (AES-256-GCM)
+
+交互菜单还提供维护选项（30–33）：
+
+- `update-core`：仅更新 Xray 内核，保留现有配置 / 防火墙 / 服务。
+- `uninstall-keep-config`：卸载服务和防火墙，保留核心文件与日志。
+- `uninstall-all`：彻底卸载（目录、服务、防火墙全部删除）。
+- `delete-config-entry`：从现有 config.json 中交互式删除某条入站配置。
+
+### Windows 支持的方案
+
+当前 **Windows 主脚本** 仅实现以下三种核心方案（`-Profile` 参数）：
+
+- **`reality-kcp`** (推荐): VLESS Reality (TCP) + VMess mKCP (UDP)
+- **`reality-only`**: 仅 VLESS Reality
+- **`kcp-only`**: 仅 VMess mKCP
+
+Windows 端的 `xray-profiles-lib.ps1` 已包含与 Linux 一致的 Profile 生成逻辑，后续版本会逐步将更多协议接入主脚本。以本 README 所述为准：如果 Windows 主脚本尚未声明支持某个 Profile 名称，则直接传入该名称会报错。
 
 ---
 

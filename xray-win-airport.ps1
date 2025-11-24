@@ -5,6 +5,10 @@ param(
     [ValidateRange(0,65535)]
     [int]$VmessKcpPort = 0,  # UDP
 
+    # Optional: main TCP/UDP port for non-Reality profiles (VMess/VLESS/Trojan/Shadowsocks etc.)
+    [ValidateRange(0,65535)]
+    [int]$MainPort = 0,
+
     # Optional: UUID. If not set, a random UUID will be generated and shared by all inbounds.
     [string]$UUID,
 
@@ -27,6 +31,9 @@ param(
 
     [switch]$KeepConfig,
     [switch]$ForceRebuildConfig,
+
+    # Add new profile to existing config.json instead of overwriting
+    [switch]$Add,
 
     [switch]$RebuildConfigOnly,
     [switch]$UninstallConfig,

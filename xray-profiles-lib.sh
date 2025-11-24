@@ -91,7 +91,6 @@ select_profile_interactive() {
     echo "  30) $(t "仅更新 Xray 内核" "Update Xray Core Only")"
     echo "  31) $(t "卸载 Xray (保留配置)" "Uninstall Xray (Keep Config)")"
     echo "  32) $(t "彻底卸载 Xray" "Uninstall Xray (Remove All)")"
-    echo ""
     echo "  33) $(t "删除已有某条配置" "Delete an existing config entry")"
     echo ""
     printf "$(t "请输入选项编号 [1-19/30-33，默认: 1]: " "Enter option number [1-19/30-33, default: 1]: ")"

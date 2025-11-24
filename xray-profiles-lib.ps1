@@ -84,20 +84,26 @@ function Select-ProfileInteractive {
             Write-Host "  18) VMess mKCP Dynamic Port [$(T '动态端口 20000-30000' 'Dynamic ports 20000-30000')]"
             Write-Host "  19) VMess QUIC Dynamic Port [$(T '动态端口 20000-30000' 'Dynamic ports 20000-30000')]"
             Write-Host ""
-            
-            $choice = Read-Host (T "请输入选项编号 [1-19，默认: 1]" "Enter option number [1-19, default: 1]")
-            
+            Write-Host "  ------------------------"
+            Write-Host "  30) $(T '仅更新 Xray 内核' 'Update Xray Core Only')"
+            Write-Host "  31) $(T '卸载 Xray (保留配置)' 'Uninstall Xray (Keep Config)')"
+            Write-Host "  32) $(T '彻底卸载 Xray' 'Uninstall Xray (Remove All)')"
+            Write-Host "  33) $(T '删除已有某条配置' 'Delete an existing config entry')"
+            Write-Host ""
+
+            $choice = Read-Host (T "请输入选项编号 [1-19/30-33，默认: 1]" "Enter option number [1-19/30-33, default: 1]")
+
             switch ($choice) {
-                ""  { $Script:Profile = "reality-kcp" }
-                "1" { $Script:Profile = "reality-kcp" }
-                "2" { $Script:Profile = "reality-only" }
-                "3" { $Script:Profile = "kcp-only" }
-                "4" { $Script:Profile = "vmess-tcp" }
-                "5" { $Script:Profile = "vmess-mkcp" }
-                "6" { $Script:Profile = "vmess-quic" }
-                "7" { $Script:Profile = "vmess-h2-tls" }
-                "8" { $Script:Profile = "vmess-ws-tls" }
-                "9" { $Script:Profile = "vmess-grpc-tls" }
+                ""   { $Script:Profile = "reality-kcp" }
+                "1"  { $Script:Profile = "reality-kcp" }
+                "2"  { $Script:Profile = "reality-only" }
+                "3"  { $Script:Profile = "kcp-only" }
+                "4"  { $Script:Profile = "vmess-tcp" }
+                "5"  { $Script:Profile = "vmess-mkcp" }
+                "6"  { $Script:Profile = "vmess-quic" }
+                "7"  { $Script:Profile = "vmess-h2-tls" }
+                "8"  { $Script:Profile = "vmess-ws-tls" }
+                "9"  { $Script:Profile = "vmess-grpc-tls" }
                 "10" { $Script:Profile = "vless-h2-tls" }
                 "11" { $Script:Profile = "vless-ws-tls" }
                 "12" { $Script:Profile = "vless-grpc-tls" }
@@ -108,9 +114,13 @@ function Select-ProfileInteractive {
                 "17" { $Script:Profile = "vmess-tcp-dynamic" }
                 "18" { $Script:Profile = "vmess-mkcp-dynamic" }
                 "19" { $Script:Profile = "vmess-quic-dynamic" }
+                "30" { $Script:Profile = "update-core" }
+                "31" { $Script:Profile = "uninstall-keep-config" }
+                "32" { $Script:Profile = "uninstall-all" }
+                "33" { $Script:Profile = "delete-config-entry" }
                 default { $Script:Profile = "reality-kcp" }
             }
-            
+
             Write-Info (T "已选择方案: $($Script:Profile)" "Selected scheme: $($Script:Profile)")
             Write-Host ""
         } else {
@@ -405,4 +415,524 @@ function Generate-VmessMkcpConfig {
         }
     )
     $Script:FirewallPorts = @("$port/udp")
+}
+
+function Generate-VmessQuicConfig {
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "quic"
+                quicSettings = @{
+                    security = "none"
+                    key      = ""
+                    header   = @{
+                        type = "none"
+                    }
+                }
+            }
+            tag = "in-vmess-quic"
+        }
+    )
+    $Script:FirewallPorts = @("$port/udp")
+}
+
+function Generate-ShadowsocksConfig {
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "shadowsocks"
+            settings = @{
+                method   = "aes-256-gcm"
+                password = $UUID
+            }
+            tag = "in-shadowsocks"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-VmessTcpDynamicConfig {
+    $Script:inbounds = @(
+        @{
+            port     = "20000-30000"
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "tcp"
+            }
+            allocate = @{
+                strategy    = "random"
+                refresh     = 5
+                concurrency = 3
+            }
+            tag = "in-vmess-tcp-dynamic"
+        }
+    )
+    $Script:FirewallPorts = @("20000-30000/tcp")
+}
+
+function Generate-VmessMkcpDynamicConfig {
+    $Script:inbounds = @(
+        @{
+            port     = "20000-30000"
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "kcp"
+                kcpSettings = @{
+                    mtu              = 1350
+                    tti              = 20
+                    uplinkCapacity   = 5
+                    downlinkCapacity = 20
+                    congestion       = $false
+                    readBufferSize   = 2
+                    writeBufferSize  = 2
+                    header           = @{
+                        type = "wechat-video"
+                    }
+                }
+            }
+            allocate = @{
+                strategy    = "random"
+                refresh     = 5
+                concurrency = 3
+            }
+            tag = "in-vmess-mkcp-dynamic"
+        }
+    )
+    $Script:FirewallPorts = @("20000-30000/udp")
+}
+
+function Generate-VmessQuicDynamicConfig {
+    $Script:inbounds = @(
+        @{
+            port     = "20000-30000"
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "quic"
+                quicSettings = @{
+                    security = "none"
+                    key      = ""
+                    header   = @{
+                        type = "none"
+                    }
+                }
+            }
+            allocate = @{
+                strategy    = "random"
+                refresh     = 5
+                concurrency = 3
+            }
+            tag = "in-vmess-quic-dynamic"
+        }
+    )
+    $Script:FirewallPorts = @("20000-30000/udp")
+}
+
+function Generate-VmessH2TlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "h2"
+                httpSettings = @{
+                    path = "/h2"
+                    host = @("example.com")
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-vmess-h2-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-VlessH2TlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vless"
+            settings = @{
+                clients = @(
+                    @{
+                        id = $UUID
+                    }
+                )
+                decryption = "none"
+            }
+            streamSettings = @{
+                network = "h2"
+                httpSettings = @{
+                    path = "/h2"
+                    host = @("example.com")
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-vless-h2-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-TrojanH2TlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "trojan"
+            settings = @{
+                clients = @(
+                    @{
+                        password = $UUID
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "h2"
+                httpSettings = @{
+                    path = "/trojan"
+                    host = @("example.com")
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-trojan-h2-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-VmessWsTlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "ws"
+                wsSettings = @{
+                    path = "/ws"
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-vmess-ws-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-VlessWsTlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vless"
+            settings = @{
+                clients = @(
+                    @{
+                        id = $UUID
+                    }
+                )
+                decryption = "none"
+            }
+            streamSettings = @{
+                network = "ws"
+                wsSettings = @{
+                    path = "/ws"
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-vless-ws-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-TrojanWsTlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "trojan"
+            settings = @{
+                clients = @(
+                    @{
+                        password = $UUID
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "ws"
+                wsSettings = @{
+                    path = "/trojan"
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-trojan-ws-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-VmessGrpcTlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vmess"
+            settings = @{
+                clients = @(
+                    @{
+                        id      = $UUID
+                        alterId = 0
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "grpc"
+                grpcSettings = @{
+                    serviceName = "grpc"
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-vmess-grpc-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-VlessGrpcTlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "vless"
+            settings = @{
+                clients = @(
+                    @{
+                        id = $UUID
+                    }
+                )
+                decryption = "none"
+            }
+            streamSettings = @{
+                network = "grpc"
+                grpcSettings = @{
+                    serviceName = "grpc"
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-vless-grpc-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
+}
+
+function Generate-TrojanGrpcTlsConfig {
+    param(
+        [string]$CertFile,
+        [string]$KeyFile
+    )
+
+    $port = $MainPort
+    $Script:inbounds = @(
+        @{
+            port     = $port
+            listen   = "0.0.0.0"
+            protocol = "trojan"
+            settings = @{
+                clients = @(
+                    @{
+                        password = $UUID
+                    }
+                )
+            }
+            streamSettings = @{
+                network = "grpc"
+                grpcSettings = @{
+                    serviceName = "grpc"
+                }
+                security    = "tls"
+                tlsSettings = @{
+                    certificates = @(
+                        @{
+                            certificateFile = $CertFile
+                            keyFile         = $KeyFile
+                        }
+                    )
+                }
+            }
+            tag = "in-trojan-grpc-tls"
+        }
+    )
+    $Script:FirewallPorts = @("$port/tcp")
 }

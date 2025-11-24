@@ -15,6 +15,8 @@ REALITY_DEST="${REALITY_DEST:-cloudflare.com:443}"
 REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-cloudflare.com}"
 REALITY_SHORT_ID="${REALITY_SHORT_ID:-}"
 BASE_DIR="${BASE_DIR:-/opt/xray}"
+TLS_CERT_MODE="${TLS_CERT_MODE:-}"
+TLS_DOMAIN="${TLS_DOMAIN:-}"
 UNINSTALL="false"
 REBUILD_CONFIG_ONLY="false"
 UNINSTALL_CONFIG="false"
@@ -45,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       REALITY_SHORT_ID="$2"; shift 2;;
     --base-dir)
       BASE_DIR="$2"; shift 2;;
+    --tls-cert-mode)
+      TLS_CERT_MODE="$2"; shift 2;;
+    --tls-domain)
+      TLS_DOMAIN="$2"; shift 2;;
     --keep-config)
       KEEP_CONFIG="true"; shift 1;;
     --force-rebuild-config)
@@ -616,39 +622,156 @@ else
   fi
 fi
 
-if [[ "$UPDATE_CORE_ONLY" != "true" ]]; then
-  if [[ -z "$UUID" ]]; then
-    if command -v uuidgen >/dev/null 2>&1; then
-      UUID="$(uuidgen)"
+profile_requires_tls() {
+  local profile="$1"
+  case "$profile" in
+    *tls*|*grpc*|*trojan*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+obtain_letsencrypt_cert() {
+  local domain="$TLS_DOMAIN"
+  local cert_dir="${BASE_DIR}/cert"
+  mkdir -p "$cert_dir"
+
+  # Detect public IP
+  local public_ip=""
+  if command -v curl >/dev/null 2>&1; then
+    public_ip="$(curl -s https://api.ipify.org || true)"
+  fi
+  if [[ -z "$public_ip" ]]; then
+    log_error "$(t "无法检测服务器公网 IP，无法验证域名解析。请检查网络后重试。" "Unable to detect server public IP; cannot validate DNS. Please check your network and try again.")"
+    exit 1
+  fi
+
+  # Resolve domain to IP
+  local resolved_ip=""
+  if command -v getent >/dev/null 2>&1; then
+    resolved_ip="$(getent hosts "$domain" | awk '{print $1; exit}')"
+  fi
+  if [[ -z "$resolved_ip" && command -v dig >/dev/null 2>&1 ]]; then
+    resolved_ip="$(dig +short A "$domain" | head -n1)"
+  fi
+  if [[ -z "$resolved_ip" && command -v nslookup >/dev/null 2>&1 ]]; then
+    resolved_ip="$(nslookup "$domain" 2>/dev/null | awk '/^Address: /{print $2; exit}')"
+  fi
+  if [[ -z "$resolved_ip" ]]; then
+    log_error "$(t "无法解析域名: $domain。请确认 DNS 记录已生效并指向本服务器。" "Failed to resolve domain: $domain. Please ensure DNS records are set and propagated to this server.")"
+    exit 1
+  fi
+
+  if [[ "$resolved_ip" != "$public_ip" ]]; then
+    log_error "$(t "DNS 解析错误：$domain 当前解析到 $resolved_ip，但本机公网 IP 为 $public_ip。请将该域名的 A 记录指向本机后重试。" "DNS mismatch: $domain currently resolves to $resolved_ip, but this server's public IP is $public_ip. Please point the domain's A record to this server and try again.")"
+    exit 1
+  fi
+
+  # Check HTTP/HTTPS ports
+  if ! is_port_free 80 tcp; then
+    log_error "$(t "Let’s Encrypt 模式需要 80 端口空闲，但检测到 80 已被占用。请先停止占用 80 端口的服务后重试。" "Let\'s Encrypt mode requires port 80 to be free, but port 80 is currently in use. Please stop the service using port 80 and try again.")"
+    exit 1
+  fi
+
+  if ! is_port_free 443 tcp; then
+    log_warn "$(t "检测到 443 端口已被占用。这不会影响通过 80 端口的 HTTP-01 验证，但请确认这是预期行为。" "Port 443 is already in use. This will not affect HTTP-01 validation on port 80, but please ensure this is expected.")"
+  fi
+
+  # Ensure certbot is available
+  if ! command -v certbot >/dev/null 2>&1; then
+    log_info "$(t "正在安装 certbot 用于申请 Let’s Encrypt 证书..." "Installing certbot to request a Let\'s Encrypt certificate...")"
+    install_dep certbot certbot || true
+  fi
+  if ! command -v certbot >/dev/null 2>&1; then
+    log_error "$(t "未找到 certbot，且自动安装失败。请手动安装 certbot 后重试。" "certbot not found and automatic installation failed. Please install certbot manually and try again.")"
+    exit 1
+  fi
+
+  log_info "$(t "开始为域名 $domain 申请 Let’s Encrypt 证书..." "Requesting Let\'s Encrypt certificate for domain $domain...")"
+  if ! certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email --preferred-challenges http -d "$domain"; then
+    log_error "$(t "Let’s Encrypt 证书申请失败。请检查 DNS、网络连通性以及 80 端口是否可从公网访问，然后重试。" "Failed to obtain Let\'s Encrypt certificate. Please check DNS, network connectivity, and that port 80 is reachable from the internet, then try again.")"
+    exit 1
+  fi
+
+  local le_dir="/etc/letsencrypt/live/${domain}"
+  local fullchain="${le_dir}/fullchain.pem"
+  local privkey="${le_dir}/privkey.pem"
+
+  if [[ ! -f "$fullchain" || ! -f "$privkey" ]]; then
+    log_error "$(t "在 $le_dir 中未找到 fullchain.pem/privkey.pem。请检查 certbot 输出。" "fullchain.pem/privkey.pem not found in $le_dir. Please check certbot output.")"
+    exit 1
+  fi
+
+  cp "$fullchain" "${cert_dir}/cert.pem"
+  cp "$privkey" "${cert_dir}/key.pem"
+  chmod 600 "${cert_dir}/cert.pem" "${cert_dir}/key.pem"
+
+  log_info "$(t "Let’s Encrypt 证书已获取并保存至 ${cert_dir}/cert.pem / key.pem" "Let\'s Encrypt certificate obtained and saved to ${cert_dir}/cert.pem / key.pem")"
+}
+
+configure_tls_mode_interactive() {
+  # Only relevant for TLS-enabled profiles
+  if ! profile_requires_tls "$PROFILE"; then
+    return 0
+  fi
+
+  local input_file="/dev/stdin" interactive_mode="false"
+
+  if [[ -t 0 ]]; then
+    interactive_mode="true"
+  elif [[ -e /dev/tty ]]; then
+    interactive_mode="true"
+    input_file="/dev/tty"
+  fi
+
+  # Decide certificate mode if not already set via env/CLI
+  if [[ -z "${TLS_CERT_MODE:-}" ]]; then
+    if [[ "$interactive_mode" == "true" ]]; then
+      echo ""
+      log_info "$(t "检测到当前方案需要 TLS 证书" "TLS-enabled profile detected")"
+      echo "  1) $(t "自动申请 Let’s Encrypt 证书（需已解析好域名，80 端口空闲，推荐）" "Automatically request a Let\'s Encrypt certificate (domain must point here, port 80 free, recommended)")"
+      echo "  2) $(t "使用脚本自动生成的自签名证书（适合仅测试/局域网环境或无法使用公网域名的用户）" "Use self-signed certificate (for testing/LAN or when a public domain is not available)")"
+      printf "$(t "请选择证书模式 [1-2，默认: 1]: " "Select certificate mode [1-2, default: 1]: ")"
+
+      read -r cert_choice < "$input_file"
+      case "${cert_choice:-1}" in
+        1) TLS_CERT_MODE="letsencrypt" ;;
+        2) TLS_CERT_MODE="self-signed" ;;
+        *) TLS_CERT_MODE="letsencrypt" ;;
+      esac
     else
-      UUID="$(cat /proc/sys/kernel/random/uuid)"
+      TLS_CERT_MODE="self-signed"
     fi
-    log_info "Generated UUID: $UUID"
   fi
 
-  validate_port_value "REALITY_PORT" "$REALITY_PORT"
-  validate_port_value "VMESS_KCP_PORT" "$VMESS_KCP_PORT"
+  # For letsencrypt/custom modes, ensure we have a domain
+  if [[ "${TLS_CERT_MODE}" == "letsencrypt" || "${TLS_CERT_MODE}" == "custom" ]]; then
+    if [[ "$interactive_mode" == "true" ]]; then
+      while [[ -z "${TLS_DOMAIN:-}" ]]; do
+        printf "$(t "请输入你的证书域名 (例如: example.com)：" "Enter your certificate domain (e.g. example.com): ")"
 
-  REALITY_PORT="$(ensure_port "$REALITY_PORT" tcp)"
-  VMESS_KCP_PORT="$(ensure_port "$VMESS_KCP_PORT" udp)"
-
-  PROFILE="${PROFILE,,}"
-  
-  # Initialize required variables for config generation
-  CERT_FILE=""
-  KEY_FILE=""
-  FIREWALL_PORTS=""
-  PROFILE_DISPLAY_NAME=""
-
-  if [[ "$REALITY_PORT" == "$VMESS_KCP_PORT" ]]; then
-    VMESS_KCP_PORT="$(ensure_port 0 udp)"
-    log_warn "VMess KCP port conflicts with Reality port, changed to: $VMESS_KCP_PORT"
+        read -r user_domain < "$input_file"
+        TLS_DOMAIN="${user_domain// /}"
+        if [[ -z "$TLS_DOMAIN" ]]; then
+          log_error "$(t "域名不能为空，请重新输入。" "Domain cannot be empty, please try again.")"
+        fi
+      done
+      log_info "$(t "将使用域名: $TLS_DOMAIN 作为证书与客户端连接主机名" "Using domain: $TLS_DOMAIN for certificate and client connections")"
+    else
+      if [[ -z "${TLS_DOMAIN:-}" ]]; then
+        log_error "TLS_CERT_MODE=${TLS_CERT_MODE} but TLS_DOMAIN is not set. Please set TLS_DOMAIN to your certificate domain."
+        exit 1
+      fi
+    fi
   fi
 
-  if [[ -z "$REALITY_SHORT_ID" ]]; then
-    REALITY_SHORT_ID="$(openssl rand -hex 4 2>/dev/null || od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
-    log_info "Generated Reality shortId: $REALITY_SHORT_ID"
+  # If using Lets Encrypt mode, obtain certificate automatically
+  if [[ "${TLS_CERT_MODE}" == "letsencrypt" ]]; then
+    obtain_letsencrypt_cert
   fi
+}
+
+if [[ "$UPDATE_CORE_ONLY" != "true" ]]; then
+  configure_tls_mode_interactive
 fi
 
 if [[ "$REBUILD_CONFIG_ONLY" != "true" ]]; then
@@ -893,6 +1016,12 @@ JSON
     *vmess*|*vless*|*trojan*|shadowsocks|kcp-only)
       # For other protocols, generate appropriate URLs
       local port="${MAIN_PORT:-${REALITY_PORT:-${VMESS_KCP_PORT}}}"
+      local server_host="$public_ip"
+
+      # If user configured a domain (custom CA or Lets Encrypt), prefer domain in URLs
+      if [[ ( "${TLS_CERT_MODE:-}" == "custom" || "${TLS_CERT_MODE:-}" == "letsencrypt" ) && -n "${TLS_DOMAIN:-}" ]]; then
+        server_host="$TLS_DOMAIN"
+      fi
       
       # Fix for dynamic port profiles: ensure port is within range 20000-30000
       if [[ "$profile" == *dynamic* ]]; then
@@ -917,7 +1046,7 @@ JSON
 {
   "v": "2",
   "ps": "xray.owokit.com-${PROFILE_DISPLAY_NAME}",
-  "add": "${public_ip}",
+  "add": "${server_host}",
   "port": "${port}",
   "id": "${UUID}",
   "aid": "0",
@@ -948,13 +1077,13 @@ JSON
              # Default generic trojan (tcp+tls)
              query_args="?security=tls&type=tcp"
           fi
-          echo "trojan://${UUID}@${public_ip}:${port}${query_args}#xray.owokit.com-${PROFILE_DISPLAY_NAME}"
+          echo "trojan://${UUID}@${server_host}:${port}${query_args}#xray.owokit.com-${PROFILE_DISPLAY_NAME}"
           ;;
         shadowsocks)
           # Shadowsocks URL format: ss://base64(method:password)@server:port#name
           local ss_str="aes-256-gcm:${UUID}"
           local ss_b64="$(printf '%s' "$ss_str" | base64 -w0 2>/dev/null || printf '%s' "$ss_str" | base64 | tr -d '\n')"
-          echo "ss://${ss_b64}@${public_ip}:${port}#xray.owokit.com-Shadowsocks"
+          echo "ss://${ss_b64}@${server_host}:${port}#xray.owokit.com-Shadowsocks"
           ;;
       esac
       ;;
@@ -1050,7 +1179,19 @@ case "$PROFILE" in
     printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "端口:" "Port:")" "${MAIN_PORT:-${REALITY_PORT:-${VMESS_KCP_PORT}}}" "${COLOR_RESET}"
     printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "UUID/Password:" "${UUID}" "${COLOR_RESET}"
     if [[ "$PROFILE" == *tls* ]]; then
-      printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "TLS:" "TLS:")" "$(t "已启用（自签名证书）" "Enabled (self-signed)")" "${COLOR_RESET}"
+      tls_desc_zh="已启用（自签名证书）"
+      tls_desc_en="Enabled (self-signed)"
+      case "${TLS_CERT_MODE:-self-signed}" in
+        letsencrypt)
+          tls_desc_zh="已启用（Let’s Encrypt 证书）"
+          tls_desc_en="Enabled (Let\'s Encrypt certificate)"
+          ;;
+        custom)
+          tls_desc_zh="已启用（自有 CA 证书）"
+          tls_desc_en="Enabled (custom CA certificate)"
+          ;;
+      esac
+      printf "%s  %-11s %s%s\n" "${COLOR_SUM_LABEL}" "$(t "TLS:" "TLS:")" "$(t "$tls_desc_zh" "$tls_desc_en")" "${COLOR_RESET}"
     fi
     ;;
 esac

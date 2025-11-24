@@ -11,24 +11,40 @@ generate_self_signed_cert() {
   local cert_dir="${BASE_DIR}/cert"
   local cert_file="${cert_dir}/cert.pem"
   local key_file="${cert_dir}/key.pem"
-  
+  local mode="${TLS_CERT_MODE:-self-signed}"
+
   mkdir -p "$cert_dir"
-  
-  if [[ ! -f "$cert_file" || ! -f "$key_file" ]]; then
-    log_info "$(t "生成自签名证书..." "Generating self-signed certificate...")"
-    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-      -keyout "$key_file" -out "$cert_file" \
-      -subj "/C=US/ST=State/L=City/O=Organization/CN=example.com" \
-      2>/dev/null || {
-        log_error "$(t "生成证书失败" "Failed to generate certificate")"
-        exit 1
-      }
-    chmod 600 "$key_file" "$cert_file"
-    log_info "$(t "证书已生成" "Certificate generated")"
+
+  # In custom / letsencrypt modes, we expect cert.pem/key.pem to already exist
+  if [[ "$mode" == "custom" || "$mode" == "letsencrypt" ]]; then
+    if [[ ! -f "$cert_file" || ! -f "$key_file" ]]; then
+      log_error "$(t "已选择使用自有/CA 证书模式，但未在 ${cert_dir} 中找到 cert.pem/key.pem" "Custom/CA certificate mode selected, but cert.pem/key.pem not found in ${cert_dir}")"
+      exit 1
+    fi
+    if [[ "$mode" == "letsencrypt" ]]; then
+      log_info "$(t "使用 Let’s Encrypt 颁发的证书" "Using Let\'s Encrypt certificate")"
+    else
+      log_info "$(t "使用自定义 CA 证书" "Using existing CA certificate")"
+    fi
   else
-    log_info "$(t "使用现有证书" "Using existing certificate")"
+    # Default: generate a self-signed certificate
+    if [[ ! -f "$cert_file" || ! -f "$key_file" ]]; then
+      log_info "$(t "生成自签名证书..." "Generating self-signed certificate...")"
+      local cn="${TLS_DOMAIN:-example.com}"
+      openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -keyout "$key_file" -out "$cert_file" \
+        -subj "/C=US/ST=State/L=City/O=Organization/CN=${cn}" \
+        2>/dev/null || {
+          log_error "$(t "生成证书失败" "Failed to generate certificate")"
+          exit 1
+        }
+      chmod 600 "$key_file" "$cert_file"
+      log_info "$(t "证书已生成" "Certificate generated")"
+    else
+      log_info "$(t "使用现有证书" "Using existing certificate")"
+    fi
   fi
-  
+
   CERT_FILE="$cert_file"
   KEY_FILE="$key_file"
 }

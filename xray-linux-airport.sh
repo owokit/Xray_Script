@@ -369,6 +369,108 @@ delete_xray_config_files() {
   log_info "Deleted configuration files (if existed): $config_path, $links_file, $ports_file"
 }
 
+delete_config_entry_interactive() {
+  local config_path="${BASE_DIR}/config.json"
+
+  if [[ ! -f "$config_path" ]]; then
+    log_error "Config file not found at $config_path. Nothing to delete."
+    return 1
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    log_error "jq is required to delete a specific config entry but is not installed."
+    return 1
+  fi
+
+  local inbounds_json
+  inbounds_json="$(jq -c '.inbounds // []' "$config_path")" || {
+    log_error "Failed to parse inbounds from $config_path."
+    return 1
+  }
+
+  local count
+  count="$(printf '%s' "$inbounds_json" | jq 'length')" || count=0
+  if [[ "$count" -eq 0 ]]; then
+    log_warn "No inbounds found in $config_path. Nothing to delete."
+    return 0
+  fi
+
+  echo ""
+  log_info "Existing inbound entries in $config_path:"
+
+  local i
+  for (( i=0; i<count; i++ )); do
+    local entry
+    entry="$(printf '%s' "$inbounds_json" | jq ".[$i]")" || continue
+
+    local port proto tag net path host name
+    port="$(printf '%s' "$entry" | jq -r '.port // "-"')"
+    proto="$(printf '%s' "$entry" | jq -r '.protocol // "-"')"
+    tag="$(printf '%s' "$entry" | jq -r '.tag // "-"')"
+    net="$(printf '%s' "$entry" | jq -r '.streamSettings.network // "-"' 2>/dev/null || echo "-")"
+    path="$(printf '%s' "$entry" | jq -r '.streamSettings.wsSettings.path // .streamSettings.httpSettings.path // .streamSettings.grpcSettings.serviceName // "-"' 2>/dev/null || echo "-")"
+    host="$(printf '%s' "$entry" | jq -r '.streamSettings.httpSettings.host[0] // "-"' 2>/dev/null || echo "-")"
+    name="$tag"
+
+    printf "  [%d] protocol=%s, port=%s, network=%s, tag=%s, path=%s, host=%s\n" \
+      "$i" "$proto" "$port" "$net" "$tag" "$path" "$host"
+  done
+
+  echo ""
+  local input_file="/dev/stdin" interactive_mode="false"
+
+  if [[ -t 0 ]]; then
+    interactive_mode="true"
+  elif [[ -e /dev/tty ]]; then
+    interactive_mode="true"
+    input_file="/dev/tty"
+  fi
+
+  if [[ "$interactive_mode" != "true" ]]; then
+    log_error "Interactive input is not available; cannot select which entry to delete."
+    return 1
+  fi
+
+  local idx
+  printf "Enter the index of the entry to delete [0-%d]: " "$((count-1))"
+  read -r idx < "$input_file"
+
+  if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 0 || idx >= count )); then
+    log_error "Invalid index: $idx. Aborting delete operation."
+    return 1
+  fi
+
+  echo ""
+  log_warn "You are about to delete inbound entry index $idx from $config_path."
+  printf "Type 'yes' to confirm: "
+  local confirm
+  read -r confirm < "$input_file"
+  if [[ "$confirm" != "yes" ]]; then
+    log_error "Operation cancelled by user."
+    return 1
+  fi
+
+  if ! jq --argjson idx "$idx" 'if (.inbounds | length) > 0 then .inbounds |= (.[0:$idx] + .[$idx+1:]) else . end' "$config_path" >"${config_path}.tmp"; then
+    log_error "Failed to delete entry index $idx from $config_path using jq."
+    rm -f "${config_path}.tmp"
+    return 1
+  fi
+
+  mv "${config_path}.tmp" "$config_path"
+  chmod 600 "$config_path"
+
+  log_info "Deleted inbound entry index $idx from $config_path."
+  log_warn "links.txt and ports.env were not updated automatically. Please regenerate or adjust them manually if needed."
+
+  if command -v systemctl >/dev/null 2>&1; then
+    local service_name="xray-server"
+    log_info "Restarting systemd service ${service_name} to apply changes..."
+    systemctl restart "$service_name" || log_warn "Failed to restart ${service_name}. Please check: journalctl -u ${service_name} -xe"
+  fi
+
+  return 0
+}
+
 #################################
 # Port helpers
 #################################
@@ -544,6 +646,10 @@ case "$PROFILE" in
     KEEP_CONFIG="true"
     # Set a dummy profile to ensure variable expansion works if needed, though it shouldn't be used
     PROFILE="reality-kcp" 
+    ;;
+  delete-config-entry)
+    delete_config_entry_interactive
+    exit 0
     ;;
 esac
 

@@ -92,7 +92,9 @@ select_profile_interactive() {
     echo "  31) $(t "卸载 Xray (保留配置)" "Uninstall Xray (Keep Config)")"
     echo "  32) $(t "彻底卸载 Xray" "Uninstall Xray (Remove All)")"
     echo ""
-    printf "$(t "请输入选项编号 [1-19/30-32，默认: 1]: " "Enter option number [1-19/30-32, default: 1]: ")"
+    echo "  33) $(t "删除已有某条配置" "Delete an existing config entry")"
+    echo ""
+    printf "$(t "请输入选项编号 [1-19/30-33，默认: 1]: " "Enter option number [1-19/30-33, default: 1]: ")"
     read -r choice < "$input_file"
     
     case "${choice:-1}" in
@@ -118,6 +120,7 @@ select_profile_interactive() {
       30) PROFILE="update-core" ;;
       31) PROFILE="uninstall-keep-config" ;;
       32) PROFILE="uninstall-all" ;;
+      33) PROFILE="delete-config-entry" ;;
       *)  PROFILE="reality-kcp" ;;
     esac
     

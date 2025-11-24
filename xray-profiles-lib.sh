@@ -259,7 +259,7 @@ generate_reality_kcp_config() {
         "enabled": true,
         "destOverride": ["http", "tls"]
       },
-      "tag": "in-vless-reality"
+      "tag": "in-vless-reality-${UUID}"
     },
     {
       "port": ${VMESS_KCP_PORT},
@@ -352,7 +352,7 @@ generate_reality_only_config() {
         "enabled": true,
         "destOverride": ["http", "tls"]
       },
-      "tag": "in-vless-reality"
+      "tag": "in-vless-reality-${UUID}"
     }
   ],
   "outbounds": [

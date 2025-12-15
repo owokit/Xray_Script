@@ -250,10 +250,6 @@ main() {
       0) echo "$(t "再见!" "Goodbye!")"; break ;;
       *) log_warn "$(t "无效选项" "Invalid option")" ;;
     esac
-    
-    echo ""
-    printf "$(t "按 Enter 继续..." "Press Enter to continue...")"
-    read -r
   done
 }
 

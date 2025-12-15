@@ -249,8 +249,4 @@ while ($true) {
         "0" { Write-Host (T "再见!" "Goodbye!"); break }
         default { Write-Warn (T "无效选项" "Invalid option") }
     }
-    
-    Write-Host ""
-    Write-Host (T "按 Enter 继续..." "Press Enter to continue...") -NoNewline
-    Read-Host
 }

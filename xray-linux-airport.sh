@@ -998,6 +998,36 @@ else
   fi
 fi
 
+# Generate UUID if not specified
+if [[ -z "$UUID" ]]; then
+  if command -v uuidgen >/dev/null 2>&1; then
+    UUID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+  else
+    # Fallback: generate UUID using /proc/sys/kernel/random/uuid or openssl
+    if [[ -f /proc/sys/kernel/random/uuid ]]; then
+      UUID="$(cat /proc/sys/kernel/random/uuid)"
+    elif command -v openssl >/dev/null 2>&1; then
+      UUID="$(openssl rand -hex 16 | sed 's/\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)/\1\2\3\4-\5\6-\7\8-/')"
+      UUID="${UUID:0:8}-${UUID:8:4}-${UUID:12:4}-${UUID:16:4}-${UUID:20:12}"
+    else
+      log_error "Cannot generate UUID. Please install uuidgen or openssl, or specify --uuid manually."
+      exit 1
+    fi
+  fi
+  log_info "No UUID specified, generated: $UUID"
+fi
+
+# Generate Reality shortId if not specified (for reality profiles)
+if [[ "$PROFILE" == reality* && -z "$REALITY_SHORT_ID" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    REALITY_SHORT_ID="$(openssl rand -hex 4)"
+  else
+    # Fallback: use /dev/urandom
+    REALITY_SHORT_ID="$(head -c 4 /dev/urandom | xxd -p 2>/dev/null || head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  fi
+  log_info "No Reality shortId specified, generated: $REALITY_SHORT_ID"
+fi
+
 if [[ "$PROFILE" == reality* ]]; then
   log_info "Generating Reality X25519 key pair (xray x25519)..."
   if ! x25519_output="$($CORE_EXE x25519 2>&1)"; then

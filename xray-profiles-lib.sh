@@ -54,17 +54,9 @@ generate_self_signed_cert() {
 #################################
 
 select_profile_interactive() {
-  local input_file="/dev/stdin"
-  local interactive_mode="false"
-
-  if [[ -t 0 ]]; then
-    interactive_mode="true"
-  elif [[ -e /dev/tty ]]; then
-    interactive_mode="true"
-    input_file="/dev/tty"
-  fi
-
-  if [[ -z "$PROFILE" && "$interactive_mode" == "true" ]]; then
+  # Only show interactive menu if stdin is a real terminal (not piped)
+  # When running via "curl | bash", use default profile directly
+  if [[ -z "$PROFILE" && -t 0 ]]; then
     log_info "$(t "请选择要部署的协议方案：" "Please select the protocol scheme to deploy:")"
     echo ""
     echo "  1)  VLESS Reality + VMess mKCP [$(t "默认，最稳定" "Default, Most Stable")]"
@@ -94,7 +86,7 @@ select_profile_interactive() {
     echo "  33) $(t "删除已有某条配置" "Delete an existing config entry")"
     echo ""
     printf "$(t "请输入选项编号 [1-19/30-33，默认: 1]: " "Enter option number [1-19/30-33, default: 1]: ")"
-    read -r choice < "$input_file"
+    read -r choice
     
     case "${choice:-1}" in
       1)  PROFILE="reality-kcp" ;;
@@ -141,15 +133,8 @@ build_config_for_profile() {
   local main_port tcp_port udp_port
   
   # Determine which ports we need
+  # IMPORTANT: reality* must come first because "reality-kcp" contains "kcp"
   case "$profile" in
-    *tcp*|*h2*|*ws*|*grpc*|*trojan*|shadowsocks)
-      tcp_port="$(ensure_port "${MAIN_PORT:-0}" tcp)"
-      MAIN_PORT="$tcp_port"
-      ;;
-    *kcp*|*quic*)
-      udp_port="$(ensure_port "${MAIN_PORT:-0}" udp)"
-      MAIN_PORT="$udp_port"
-      ;;
     reality*)
       tcp_port="$(ensure_port "${REALITY_PORT:-0}" tcp)"
       REALITY_PORT="$tcp_port"
@@ -157,6 +142,14 @@ build_config_for_profile() {
         udp_port="$(ensure_port "${VMESS_KCP_PORT:-0}" udp)"
         VMESS_KCP_PORT="$udp_port"
       fi
+      ;;
+    *tcp*|*h2*|*ws*|*grpc*|*trojan*|shadowsocks)
+      tcp_port="$(ensure_port "${MAIN_PORT:-0}" tcp)"
+      MAIN_PORT="$tcp_port"
+      ;;
+    *kcp*|*quic*)
+      udp_port="$(ensure_port "${MAIN_PORT:-0}" udp)"
+      MAIN_PORT="$udp_port"
       ;;
   esac
   

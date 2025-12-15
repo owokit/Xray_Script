@@ -57,76 +57,11 @@ function Generate-SelfSignedCert {
 #################################
 
 function Select-ProfileInteractive {
-    if (-not $Profile) {
-        # Check if running interactively
-        $isInteractive = [Environment]::UserInteractive -and -not [Environment]::GetCommandLineArgs().Contains('-NonInteractive')
-        
-        if ($isInteractive) {
-            Write-Info (T "请选择要部署的协议方案：" "Please select the protocol scheme to deploy:")
-            Write-Host ""
-            Write-Host "  1)  VLESS Reality + VMess mKCP [$(T '默认，最稳定' 'Default, Most Stable')]"
-            Write-Host "  2)  VLESS Reality Only"
-            Write-Host "  3)  VMess mKCP Only"
-            Write-Host "  4)  VMess TCP"
-            Write-Host "  5)  VMess mKCP (Standalone)"
-            Write-Host "  6)  VMess QUIC"
-            Write-Host "  7)  VMess H2 + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  8)  VMess WebSocket + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  9)  VMess gRPC + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  10) VLESS H2 + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  11) VLESS WebSocket + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  12) VLESS gRPC + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  13) Trojan H2 + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  14) Trojan WebSocket + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  15) Trojan gRPC + TLS [$(T '自签名证书' 'Self-signed cert')]"
-            Write-Host "  16) Shadowsocks (AES-256-GCM)"
-            Write-Host "  17) VMess TCP Dynamic Port [$(T '动态端口 20000-30000' 'Dynamic ports 20000-30000')]"
-            Write-Host "  18) VMess mKCP Dynamic Port [$(T '动态端口 20000-30000' 'Dynamic ports 20000-30000')]"
-            Write-Host "  19) VMess QUIC Dynamic Port [$(T '动态端口 20000-30000' 'Dynamic ports 20000-30000')]"
-            Write-Host ""
-            Write-Host "  ------------------------"
-            Write-Host "  30) $(T '仅更新 Xray 内核' 'Update Xray Core Only')"
-            Write-Host "  31) $(T '卸载 Xray (保留配置)' 'Uninstall Xray (Keep Config)')"
-            Write-Host "  32) $(T '彻底卸载 Xray' 'Uninstall Xray (Remove All)')"
-            Write-Host "  33) $(T '删除已有某条配置' 'Delete an existing config entry')"
-            Write-Host ""
-
-            $choice = Read-Host (T "请输入选项编号 [1-19/30-33，默认: 1]" "Enter option number [1-19/30-33, default: 1]")
-
-            switch ($choice) {
-                ""   { $Script:Profile = "reality-kcp" }
-                "1"  { $Script:Profile = "reality-kcp" }
-                "2"  { $Script:Profile = "reality-only" }
-                "3"  { $Script:Profile = "kcp-only" }
-                "4"  { $Script:Profile = "vmess-tcp" }
-                "5"  { $Script:Profile = "vmess-mkcp" }
-                "6"  { $Script:Profile = "vmess-quic" }
-                "7"  { $Script:Profile = "vmess-h2-tls" }
-                "8"  { $Script:Profile = "vmess-ws-tls" }
-                "9"  { $Script:Profile = "vmess-grpc-tls" }
-                "10" { $Script:Profile = "vless-h2-tls" }
-                "11" { $Script:Profile = "vless-ws-tls" }
-                "12" { $Script:Profile = "vless-grpc-tls" }
-                "13" { $Script:Profile = "trojan-h2-tls" }
-                "14" { $Script:Profile = "trojan-ws-tls" }
-                "15" { $Script:Profile = "trojan-grpc-tls" }
-                "16" { $Script:Profile = "shadowsocks" }
-                "17" { $Script:Profile = "vmess-tcp-dynamic" }
-                "18" { $Script:Profile = "vmess-mkcp-dynamic" }
-                "19" { $Script:Profile = "vmess-quic-dynamic" }
-                "30" { $Script:Profile = "update-core" }
-                "31" { $Script:Profile = "uninstall-keep-config" }
-                "32" { $Script:Profile = "uninstall-all" }
-                "33" { $Script:Profile = "delete-config-entry" }
-                default { $Script:Profile = "reality-kcp" }
-            }
-
-            Write-Info (T "已选择方案: $($Script:Profile)" "Selected scheme: $($Script:Profile)")
-            Write-Host ""
-        } else {
-            $Script:Profile = "reality-kcp"
-            Write-Info (T "非交互模式，使用默认方案: $($Script:Profile)" "Non-interactive mode, using default: $($Script:Profile)")
-        }
+    # Windows version: Profile is already set via parameter with default "reality-kcp"
+    # No interactive menu needed - just use default directly for automation
+    if (-not $Script:Profile) {
+        $Script:Profile = "reality-kcp"
+        Write-Info (T "使用默认方案: $($Script:Profile)" "Using default profile: $($Script:Profile)")
     }
 }
 
@@ -140,15 +75,23 @@ function Build-ConfigForProfile {
     $Script:FirewallPorts = @()
     
     # Determine which ports we need
-    switch -Wildcard ($ProfileName) {
-        "*tcp*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
-        "*h2*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
-        "*ws*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
-        "*grpc*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
-        "*trojan*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
-        "shadowsocks" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
-        "*kcp*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "UDP" }
-        "*quic*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "UDP" }
+    # IMPORTANT: Handle reality* first since "reality-kcp" contains "kcp"
+    if ($ProfileName -like "reality*") {
+        $Script:RealityPort = Ensure-Port -Port $RealityPort -Protocol "TCP"
+        if ($ProfileName -eq "reality-kcp") {
+            $Script:VmessKcpPort = Ensure-Port -Port $VmessKcpPort -Protocol "UDP"
+        }
+    } else {
+        switch -Wildcard ($ProfileName) {
+            "*tcp*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
+            "*h2*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
+            "*ws*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
+            "*grpc*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
+            "*trojan*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
+            "shadowsocks" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "TCP" }
+            "*kcp*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "UDP" }
+            "*quic*" { $Script:MainPort = Ensure-Port -Port $MainPort -Protocol "UDP" }
+        }
     }
     
     # Generate config based on profile

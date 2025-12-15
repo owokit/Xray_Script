@@ -41,96 +41,49 @@ show_menu() {
   echo "  $(t "Xray 配置管理" "Xray Configuration Manager")"
   echo "========================================"
   echo ""
-  echo "  1) $(t "添加新配置方案" "Add new profile")"
-  echo "  2) $(t "查看当前配置" "View current configuration")"
-  echo "  3) $(t "查看连接链接" "View connection URLs")"
-  echo "  4) $(t "重启 Xray 服务" "Restart Xray service")"
-  echo "  5) $(t "查看服务状态" "View service status")"
-  echo "  6) $(t "删除某条配置" "Delete a config entry")"
-  echo "  7) $(t "更新 Xray 内核" "Update Xray core")"
-  echo "  8) $(t "卸载 Xray (保留配置)" "Uninstall Xray (keep config)")"
-  echo "  9) $(t "彻底卸载 Xray" "Uninstall Xray (remove all)")"
-  echo "  0) $(t "退出" "Exit")"
-  echo ""
-  printf "$(t "请选择操作 [0-9]: " "Select an option [0-9]: ")"
-}
-
-check_installed() {
-  if [[ ! -d "$BASE_DIR" ]]; then
-    log_error "$(t "Xray 未安装。请先运行安装脚本。" "Xray is not installed. Please run the installation script first.")"
-    exit 1
-  fi
-}
-
-show_profile_menu() {
-  echo ""
-  log_info "$(t "请选择要部署的协议方案：" "Please select the protocol scheme to deploy:")"
-  echo ""
+  echo "$(t "【配置方案 1-19】" "[Profiles 1-19]")"
   echo "  1)  VLESS Reality + VMess mKCP [$(t "默认，最稳定" "Default, Most Stable")]"
   echo "  2)  VLESS Reality Only"
   echo "  3)  VMess mKCP Only"
   echo "  4)  VMess TCP"
   echo "  5)  VMess mKCP (Standalone)"
   echo "  6)  VMess QUIC"
-  echo "  7)  VMess H2 + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  8)  VMess WebSocket + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  9)  VMess gRPC + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  10) VLESS H2 + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  11) VLESS WebSocket + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  12) VLESS gRPC + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  13) Trojan H2 + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  14) Trojan WebSocket + TLS [$(t "自签名证书" "Self-signed cert")]"
-  echo "  15) Trojan gRPC + TLS [$(t "自签名证书" "Self-signed cert")]"
+  echo "  7)  VMess H2 + TLS"
+  echo "  8)  VMess WebSocket + TLS"
+  echo "  9)  VMess gRPC + TLS"
+  echo "  10) VLESS H2 + TLS"
+  echo "  11) VLESS WebSocket + TLS"
+  echo "  12) VLESS gRPC + TLS"
+  echo "  13) Trojan H2 + TLS"
+  echo "  14) Trojan WebSocket + TLS"
+  echo "  15) Trojan gRPC + TLS"
   echo "  16) Shadowsocks (AES-256-GCM)"
-  echo "  17) VMess TCP Dynamic Port [$(t "动态端口 20000-30000" "Dynamic ports 20000-30000")]"
-  echo "  18) VMess mKCP Dynamic Port [$(t "动态端口 20000-30000" "Dynamic ports 20000-30000")]"
-  echo "  19) VMess QUIC Dynamic Port [$(t "动态端口 20000-30000" "Dynamic ports 20000-30000")]"
+  echo "  17) VMess TCP Dynamic Port"
+  echo "  18) VMess mKCP Dynamic Port"
+  echo "  19) VMess QUIC Dynamic Port"
   echo ""
-  echo "  0) $(t "返回主菜单" "Back to main menu")"
+  echo "$(t "【查看信息 101-102】" "[View Info 101-102]")"
+  echo "  101) $(t "查看连接链接" "View connection URLs")"
+  echo "  102) $(t "查看当前配置" "View current configuration")"
   echo ""
-  printf "$(t "请输入选项编号 [0-19，默认: 1]: " "Enter option number [0-19, default: 1]: ")"
+  echo "$(t "【服务管理 201-203】" "[Service Management 201-203]")"
+  echo "  201) $(t "查看服务状态" "View service status")"
+  echo "  202) $(t "重启 Xray 服务" "Restart Xray service")"
+  echo "  203) $(t "更新 Xray 内核" "Update Xray core")"
+  echo ""
+  echo "$(t "【卸载选项 301-303】" "[Uninstall Options 301-303]")"
+  echo "  301) $(t "删除某条配置" "Delete a config entry")"
+  echo "  302) $(t "卸载 Xray (保留配置)" "Uninstall Xray (keep config)")"
+  echo "  303) $(t "彻底卸载 Xray" "Uninstall Xray (remove all)")"
+  echo ""
+  echo "  0) $(t "退出" "Exit")"
+  echo ""
+  printf "$(t "请选择操作: " "Select an option: ")"
 }
 
-add_profile() {
-  show_profile_menu
-  read -r choice
-  
-  local profile=""
-  case "${choice:-1}" in
-    0)  return ;;
-    1)  profile="reality-kcp" ;;
-    2)  profile="reality-only" ;;
-    3)  profile="kcp-only" ;;
-    4)  profile="vmess-tcp" ;;
-    5)  profile="vmess-mkcp" ;;
-    6)  profile="vmess-quic" ;;
-    7)  profile="vmess-h2-tls" ;;
-    8)  profile="vmess-ws-tls" ;;
-    9)  profile="vmess-grpc-tls" ;;
-    10) profile="vless-h2-tls" ;;
-    11) profile="vless-ws-tls" ;;
-    12) profile="vless-grpc-tls" ;;
-    13) profile="trojan-h2-tls" ;;
-    14) profile="trojan-ws-tls" ;;
-    15) profile="trojan-grpc-tls" ;;
-    16) profile="shadowsocks" ;;
-    17) profile="vmess-tcp-dynamic" ;;
-    18) profile="vmess-mkcp-dynamic" ;;
-    19) profile="vmess-quic-dynamic" ;;
-    *)  profile="reality-kcp" ;;
-  esac
-  
-  log_info "$(t "选择方案: $profile" "Selected profile: $profile")"
-  
-  # Download and run the main script with --add and --profile flags
-  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
-  
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --add --profile "$profile"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --add --profile "$profile"
-  else
-    log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
+check_installed() {
+  if [[ ! -d "$BASE_DIR" ]]; then
+    log_error "$(t "Xray 未安装。请先运行安装脚本。" "Xray is not installed. Please run the installation script first.")"
     exit 1
   fi
 }
@@ -189,9 +142,9 @@ delete_entry() {
   local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
   
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --delete-config-entry
+    curl -fsSL "$script_url" | sudo bash -s -- --profile delete-config-entry
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --delete-config-entry
+    wget -qO- "$script_url" | sudo bash -s -- --profile delete-config-entry
   else
     log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
     exit 1
@@ -238,6 +191,22 @@ uninstall_all() {
   fi
 }
 
+add_profile_direct() {
+  local profile="$1"
+  log_info "$(t "选择方案: $profile" "Selected profile: $profile")"
+  
+  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
+  
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$script_url" | sudo bash -s -- --add --profile "$profile"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- "$script_url" | sudo bash -s -- --add --profile "$profile"
+  else
+    log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
+    exit 1
+  fi
+}
+
 main() {
   check_installed
   
@@ -246,15 +215,38 @@ main() {
     read -r choice
     
     case "$choice" in
-      1) add_profile ;;
-      2) view_config ;;
-      3) view_links ;;
-      4) restart_service ;;
-      5) view_status ;;
-      6) delete_entry ;;
-      7) update_core ;;
-      8) uninstall_keep_config; break ;;
-      9) uninstall_all; break ;;
+      # Profiles 1-19
+      1)  add_profile_direct "reality-kcp" ;;
+      2)  add_profile_direct "reality-only" ;;
+      3)  add_profile_direct "kcp-only" ;;
+      4)  add_profile_direct "vmess-tcp" ;;
+      5)  add_profile_direct "vmess-mkcp" ;;
+      6)  add_profile_direct "vmess-quic" ;;
+      7)  add_profile_direct "vmess-h2-tls" ;;
+      8)  add_profile_direct "vmess-ws-tls" ;;
+      9)  add_profile_direct "vmess-grpc-tls" ;;
+      10) add_profile_direct "vless-h2-tls" ;;
+      11) add_profile_direct "vless-ws-tls" ;;
+      12) add_profile_direct "vless-grpc-tls" ;;
+      13) add_profile_direct "trojan-h2-tls" ;;
+      14) add_profile_direct "trojan-ws-tls" ;;
+      15) add_profile_direct "trojan-grpc-tls" ;;
+      16) add_profile_direct "shadowsocks" ;;
+      17) add_profile_direct "vmess-tcp-dynamic" ;;
+      18) add_profile_direct "vmess-mkcp-dynamic" ;;
+      19) add_profile_direct "vmess-quic-dynamic" ;;
+      # View Info 101-102
+      101) view_links ;;
+      102) view_config ;;
+      # Service Management 201-203
+      201) view_status ;;
+      202) restart_service ;;
+      203) update_core ;;
+      # Uninstall Options 301-303
+      301) delete_entry ;;
+      302) uninstall_keep_config; break ;;
+      303) uninstall_all; break ;;
+      # Exit
       0) echo "$(t "再见!" "Goodbye!")"; break ;;
       *) log_warn "$(t "无效选项" "Invalid option")" ;;
     esac

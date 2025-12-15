@@ -205,12 +205,16 @@ Linux 主脚本已接入完整 Profile 库，交互菜单中可选择以下方�
    - `vmess-h2-tls` / `vless-h2-tls` / `trojan-h2-tls`
 7. `shadowsocks` (AES-256-GCM)
 
-交互菜单还提供维护选项（30–33）：
+### xray 管理命令
 
-- `update-core`：仅更新 Xray 内核，保留现有配置 / 防火墙 / 服务。
-- `uninstall-keep-config`：卸载服务和防火墙，保留核心文件与日志。
-- `uninstall-all`：彻底卸载（目录、服务、防火墙全部删除）。
-- `delete-config-entry`：从现有 config.json 中交互式删除某条入站配置。
+安装完成后，可运行 `xray` 命令进入交互式管理菜单：
+
+```
+【配置方案 1-19】      - 直接选择并添加新配置
+【查看信息 101-102】   - 查看连接链接 / 当前配置
+【服务管理 201-203】   - 查看状态 / 重启服务 / 更新内核
+【卸载选项 301-303】   - 删除配置 / 卸载保留配置 / 彻底卸载
+```
 
 ### Windows 支持的方案
 
@@ -237,9 +241,11 @@ Windows 端的 `xray-profiles-lib.ps1` 已包含与 Linux 一致的 Profile 生�
 ├── linux/
 │   ├── xray-common.sh       # 通用函数 (日志, 依赖安装)
 │   ├── xray-ports.sh        # 端口管理 (随机端口, 占用检测)
+│   ├── xray-manager.sh      # xray 管理命令脚本
 │   └── xray-uninstall.sh    # 卸载逻辑
 └── windows/
     ├── Xray-Ports.ps1       # Windows 端口管理
+    ├── Xray-Manager.ps1     # Windows xray 管理命令脚本
     └── Xray-Uninstall.ps1   # Windows 卸载逻辑
 ```
 

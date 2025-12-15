@@ -1034,8 +1034,9 @@ if ($enableRealityInbound) {
 
     $vlessUrl = New-VlessRealityUrl -Address $ip -Port $RealityPort -Uuid $UUID -PublicKey $RealityPublicKey -ShortId $RealityShortId -ServerName $RealityServerName -Dest $RealityDest
     if ($vlessUrl) {
-        Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
-        Write-Host $vlessUrl -ForegroundColor Yellow
+        Write-Host (T "  订阅链接 (已复制到剪贴板): " "  URL (copied to clipboard): ") -ForegroundColor Cyan
+        $vlessUrl | Set-Clipboard
+        [Console]::WriteLine($vlessUrl)
     }
 }
 
@@ -1050,8 +1051,8 @@ if ($enableVmessKcpInbound) {
 
     $vmessKcpUrl = New-VmessUrl -Address $ip -Port $VmessKcpPort -Uuid $UUID -Network "kcp" -HeaderType "wechat-video" -Name "xray.owokit.com-VMess-mKCP-wechat-video"
     if ($vmessKcpUrl) {
-        Write-Host (T "  订阅链接: " "  URL: ") -NoNewline -ForegroundColor Cyan
-        Write-Host $vmessKcpUrl -ForegroundColor Yellow
+        Write-Host (T "  订阅链接: " "  URL: ") -ForegroundColor Cyan
+        [Console]::WriteLine($vmessKcpUrl)
     }
 }
 

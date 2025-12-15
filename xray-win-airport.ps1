@@ -611,22 +611,54 @@ if (-not $RebuildConfigOnly) {
         Write-Info "Using latest Xray from $CoreRepo"
     }
 
-    Write-Info "Downloading Xray from: $coreUrl"
-
-    try {
-        $invokeParams = @{
-            Uri     = $coreUrl
-            OutFile = $CoreZipPath
-            UseBasicParsing = $true
+    # Try multiple download sources with retry
+    $downloadUrls = @(
+        $coreUrl,
+        "https://ghproxy.com/$coreUrl",
+        "https://mirror.ghproxy.com/$coreUrl"
+    )
+    
+    $maxRetries = 3
+    $downloaded = $false
+    
+    foreach ($url in $downloadUrls) {
+        if ($downloaded) { break }
+        
+        for ($retry = 1; $retry -le $maxRetries; $retry++) {
+            Write-Info "Downloading Xray from: $url (attempt $retry/$maxRetries)"
+            
+            try {
+                $invokeParams = @{
+                    Uri     = $url
+                    OutFile = $CoreZipPath
+                    UseBasicParsing = $true
+                    TimeoutSec = 120
+                }
+                if ($Proxy) {
+                    Write-Info "Using proxy for download: $Proxy"
+                    $invokeParams["Proxy"] = $Proxy
+                }
+                Invoke-WebRequest @invokeParams
+                $downloaded = $true
+                Write-Info "Download completed successfully"
+                break
+            }
+            catch {
+                Write-Warn "Download failed: $($_.Exception.Message)"
+                if ($retry -lt $maxRetries) {
+                    Write-Info "Retrying in 3 seconds..."
+                    Start-Sleep -Seconds 3
+                }
+            }
         }
-        if ($Proxy) {
-            Write-Info "Using proxy for download: $Proxy"
-            $invokeParams["Proxy"] = $Proxy
+        
+        if (-not $downloaded) {
+            Write-Warn "All retries failed for this source, trying next..."
         }
-        Invoke-WebRequest @invokeParams
     }
-    catch {
-        Write-Err "Failed to download Xray core: $($_.Exception.Message)"
+    
+    if (-not $downloaded) {
+        Write-Err "Failed to download Xray core from all sources"
         exit 1
     }
 

@@ -13,8 +13,9 @@
 
 适用于 Ubuntu, Debian, CentOS, Rocky Linux 等常见发行版（需 systemd）。
 
+标准安装（默认方案：VLESS Reality + VMess mKCP）
+
 ```bash
-# 标准安装（默认方案：VLESS Reality + VMess mKCP）
 curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash
 ```
 
@@ -24,13 +25,21 @@ curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh 
 3. 下载 Xray-core (Linux-64)。
 4. 生成配置、证书（如需）与 systemd 服务。
 5. 输出客户端连接链接 (`vless://`, `vmess://`)。
+6. 安装 `xray` 管理命令到 `/usr/local/bin`。
+
+**后续管理配置：**
+```bash
+xray
+```
+运行后进入交互式管理菜单，可添加新配置、查看链接、重启服务、更新内核、卸载等。
 
 ### Windows 一键安装
 
 适用于 Windows Server 2016/2019/2022 或 Windows 10/11。请使用 **管理员权限** 打开 PowerShell 执行：
 
+标准安装（默认方案：VLESS Reality + VMess mKCP）
+
 ```powershell
-# 标准安装
 Set-ExecutionPolicy Bypass -Scope Process -Force; irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex
 ```
 
@@ -40,6 +49,13 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm "https://github.com/owokit
 3. 配置防火墙规则（需系统支持 `New-NetFirewallRule`）。
 4. 创建开机自启计划任务 (XrayServer)。
 5. 输出客户端连接链接。
+6. 安装 `xray` 管理命令。
+
+**后续管理配置：**
+```powershell
+xray
+```
+运行后进入交互式管理菜单，可添加新配置、查看链接、重启服务、更新内核、卸载等。
 
 ---
 

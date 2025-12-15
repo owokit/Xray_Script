@@ -1043,4 +1043,23 @@ Write-Host ""
 Write-Host (T "配置文件: $ConfigPath" "Config file: $ConfigPath") -ForegroundColor Gray
 Write-Host (T "日志目录: $LogDir" "Log dir:     $LogDir") -ForegroundColor Gray
 Write-Host (T "计划任务: $TaskName（开机自动以 SYSTEM 运行）" "Scheduled task: $TaskName (auto start at boot as SYSTEM)") -ForegroundColor Gray
+Write-Host (T "管理命令: xray（运行 xray 管理配置）" "Management: xray (run 'xray' to manage)") -ForegroundColor Gray
 Write-Host (T "========================================================" "========================================================") -ForegroundColor Cyan
+
+# Install xray management command
+$XrayManagerUrl = "https://github.com/owokit/Xray_Script/raw/main/windows/Xray-Manager.ps1"
+$XrayManagerPath = Join-Path $BaseDir "xray.ps1"
+$XrayCmdPath = Join-Path $env:SystemRoot "xray.cmd"
+
+try {
+    Write-Info (T "安装 xray 管理命令..." "Installing xray management command...")
+    Invoke-WebRequest -Uri $XrayManagerUrl -OutFile $XrayManagerPath -UseBasicParsing
+    
+    # Create xray.cmd wrapper in Windows directory for easy access
+    $cmdContent = "@echo off`r`npowershell.exe -ExecutionPolicy Bypass -File `"$XrayManagerPath`" %*"
+    $cmdContent | Set-Content -Path $XrayCmdPath -Encoding ASCII
+    
+    Write-Info (T "已安装。之后可运行 'xray' 命令管理配置。" "Installed. You can now run 'xray' command to manage configurations.")
+} catch {
+    Write-Warn (T "xray 管理命令安装失败，但不影响 Xray 服务运行。" "Failed to install xray management command, but Xray service is not affected.")
+}

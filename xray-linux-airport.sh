@@ -777,8 +777,10 @@ else
           *) log_error "$(t "操作已取消。" "Operation cancelled by user.")"; exit 1 ;;
         esac
       else
-        log_error "$(t "检测到已有配置文件 $CONFIG_PATH。请使用 --keep-config 保留配置，--force-rebuild-config 覆盖配置，或 --add 合并新方案。" "Config file already exists at $CONFIG_PATH. Use --keep-config to reuse it, --force-rebuild-config to overwrite it, or --add to merge new profile.")"
-        exit 1
+        # Non-interactive mode (curl | bash) with existing config: prompt user to use xray command
+        log_info "$(t "检测到已有配置，Xray 已安装完成。" "Existing config detected, Xray is already installed.")"
+        log_info "$(t "如需管理配置，请运行: xray" "To manage configuration, run: xray")"
+        exit 0
       fi
     fi
   else
@@ -1406,3 +1408,17 @@ printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "配置文件:  ${CONFIG_PATH}" "con
 printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "日志目录:      ${LOG_DIR}" "log dir:      ${LOG_DIR}")" "${COLOR_RESET}"
 printf "%s%s%s\n" "${COLOR_SUM_LABEL}" "$(t "服务:        ${SERVICE_NAME} (systemd)" "service:      ${SERVICE_NAME} (systemd)")" "${COLOR_RESET}"
 printf "%s%s%s\n" "${COLOR_SUM_TITLE}" "$(t "========================================================" "========================================================")" "${COLOR_RESET}"
+
+# Install xray management command
+XRAY_MANAGER_URL="https://github.com/owokit/Xray_Script/raw/main/linux/xray-manager.sh"
+XRAY_CMD_PATH="/usr/local/bin/xray"
+
+if [[ ! -f "$XRAY_CMD_PATH" ]] || [[ "$FORCE_INSTALL_MANAGER" == "true" ]]; then
+  log_info "$(t "安装 xray 管理命令到 $XRAY_CMD_PATH ..." "Installing xray management command to $XRAY_CMD_PATH ...")"
+  if curl -fsSL "$XRAY_MANAGER_URL" -o "$XRAY_CMD_PATH" 2>/dev/null; then
+    chmod +x "$XRAY_CMD_PATH"
+    log_info "$(t "已安装。之后可运行 'xray' 命令管理配置。" "Installed. You can now run 'xray' command to manage configurations.")"
+  else
+    log_warn "$(t "xray 管理命令安装失败，但不影响 Xray 服务运行。" "Failed to install xray management command, but Xray service is not affected.")"
+  fi
+fi

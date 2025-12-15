@@ -271,6 +271,10 @@ generate_reality_kcp_config() {
           "serverNames": ["${REALITY_SERVER_NAME}"],
           "privateKey": "${reality_priv}",
           "shortIds": ["${REALITY_SHORT_ID}"]
+        },
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpNoDelay": true
         }
       },
       "sniffing": {
@@ -364,6 +368,10 @@ generate_reality_only_config() {
           "serverNames": ["${REALITY_SERVER_NAME}"],
           "privateKey": "${reality_priv}",
           "shortIds": ["${REALITY_SHORT_ID}"]
+        },
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpNoDelay": true
         }
       },
       "sniffing": {

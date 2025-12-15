@@ -19,8 +19,8 @@ param(
     [string]$Proxy,
 
     # Reality settings
-    [string]$RealityDest = "cloudflare.com:443",
-    [string]$RealityServerName = "cloudflare.com",
+    [string]$RealityDest = "www.microsoft.com:443",
+    [string]$RealityServerName = "www.microsoft.com",
     # Reality shortId (hex, length 2~16). If empty, generate 8 hex chars.
     [string]$RealityShortId,
 

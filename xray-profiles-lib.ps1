@@ -275,6 +275,10 @@ function Generate-RealityKcpConfig {
                     privateKey  = $RealityPrivateKey
                     shortIds    = @($RealityShortId)
                 }
+                sockopt = @{
+                    tcpFastOpen = $true
+                    tcpNoDelay  = $true
+                }
             }
             sniffing = @{
                 enabled      = $true
@@ -341,6 +345,10 @@ function Generate-RealityOnlyConfig {
                     serverNames = @($RealityServerName)
                     privateKey  = $RealityPrivateKey
                     shortIds    = @($RealityShortId)
+                }
+                sockopt = @{
+                    tcpFastOpen = $true
+                    tcpNoDelay  = $true
                 }
             }
             sniffing = @{

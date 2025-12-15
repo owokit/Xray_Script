@@ -752,25 +752,17 @@ else
     elif [[ "$ADD_TO_CONFIG" == "true" ]]; then
       log_info "Existing config at $CONFIG_PATH will be merged with new profile because --add is set."
     else
-      # Interactive check
-      input_file="/dev/stdin"
-      interactive_mode="false"
-
+      # Check if running interactively (stdin is a real terminal, NOT piped)
+      # curl | bash means stdin is piped, so -t 0 will be false
       if [[ -t 0 ]]; then
-        interactive_mode="true"
-      elif [[ -e /dev/tty ]]; then
-        interactive_mode="true"
-        input_file="/dev/tty"
-      fi
-
-      if [[ "$interactive_mode" == "true" ]]; then
+        # Interactive mode: show menu
         echo ""
         log_warn "$(t "检测到已有配置文件: $CONFIG_PATH" "Config file already exists at $CONFIG_PATH.")"
         echo "  1) $(t "追加（向现有配置中合并新方案）" "Add (Merge new profile to existing config)")"
         echo "  2) $(t "覆盖（删除现有配置并重建）" "Overwrite (Delete existing config)")"
         echo "  3) $(t "取消操作" "Cancel")"
         printf "$(t "请输入选项 [1-3，默认: 1]: " "Enter option [1-3, default: 1]: ")"
-        read -r conflict_choice < "$input_file"
+        read -r conflict_choice
         case "${conflict_choice:-1}" in
           1) ADD_TO_CONFIG="true" ;;
           2) FORCE_REBUILD_CONFIG="true" ;;

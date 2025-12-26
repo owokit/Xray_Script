@@ -894,29 +894,52 @@ catch {
 }
 
 if ($schtasksCmd) {
-    try {
-        schtasks.exe /Delete /TN $TaskName /F > $null 2>&1
-    } catch {}
-
     $taskExe  = $CoreExe
     $taskArgs = "run -config `"$ConfigPath`""
 
-    $createArgs = @(
-        '/Create',
-        '/TN', $TaskName,
-        '/TR', "`"$taskExe`" $taskArgs",
-        '/SC', 'ONSTART',
-        '/RU', 'SYSTEM'
-    )
+    $scheduledTasksCmd = Get-Command -Name "Register-ScheduledTask" -ErrorAction SilentlyContinue
+    if ($scheduledTasksCmd) {
+        try {
+            try {
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+            } catch {}
 
-    try {
-        schtasks.exe @createArgs | Out-Null
-        Write-Info "Scheduled task $TaskName created (run at system startup as SYSTEM)."
-        schtasks.exe /Run /TN $TaskName | Out-Null
-        Start-Sleep -Seconds 2
+            $action    = New-ScheduledTaskAction -Execute $taskExe -Argument $taskArgs
+            $trigger   = New-ScheduledTaskTrigger -AtStartup
+            $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+            $settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+            Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+            Write-Info "Scheduled task $TaskName created (run at system startup as SYSTEM)."
+            Start-ScheduledTask -TaskName $TaskName
+            Start-Sleep -Seconds 2
+        }
+        catch {
+            Write-Warn "Failed to create or start scheduled task ${TaskName}: $($_.Exception.Message)"
+        }
     }
-    catch {
-        Write-Warn "Failed to create or start scheduled task ${TaskName}: $($_.Exception.Message)"
+    else {
+        try {
+            schtasks.exe /Delete /TN $TaskName /F > $null 2>&1
+        } catch {}
+
+        $createArgs = @(
+            '/Create',
+            '/TN', $TaskName,
+            '/TR', "`"$taskExe`" $taskArgs",
+            '/SC', 'ONSTART',
+            '/RU', 'SYSTEM'
+        )
+
+        try {
+            schtasks.exe @createArgs | Out-Null
+            Write-Info "Scheduled task $TaskName created (run at system startup as SYSTEM)."
+            schtasks.exe /Run /TN $TaskName | Out-Null
+            Start-Sleep -Seconds 2
+        }
+        catch {
+            Write-Warn "Failed to create or start scheduled task ${TaskName}: $($_.Exception.Message)"
+        }
     }
 }
 

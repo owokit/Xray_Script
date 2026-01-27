@@ -11,8 +11,8 @@ VMESS_KCP_PORT="${VMESS_KCP_PORT:-0}"
 UUID="${UUID:-}"
 CORE_VERSION="${CORE_VERSION:-}"
 PROXY="${PROXY:-}"
-REALITY_DEST="${REALITY_DEST:-www.microsoft.com:443}"
-REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-www.microsoft.com}"
+REALITY_DEST="${REALITY_DEST:-cloudflare.com:443}"
+REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-cloudflare.com}"
 REALITY_SHORT_ID="${REALITY_SHORT_ID:-}"
 BASE_DIR="${BASE_DIR:-/opt/xray}"
 TLS_CERT_MODE="${TLS_CERT_MODE:-}"
@@ -1175,6 +1175,13 @@ fi
 generate_url_for_profile() {
   local profile="$1"
   local url=""
+
+  # Dynamic port inbounds (20000-30000 with allocate=random) can't be reliably expressed
+  # as a single standard URI. Output a comment hint instead.
+  if [[ "$profile" == *dynamic* ]]; then
+    echo "# ${PROFILE_DISPLAY_NAME:-$profile}: dynamic ports 20000-30000 (allocate=random). Standard vmess:// URI cannot represent dynamic port hopping; please configure client manually."
+    return 0
+  fi
   
   case "$profile" in
     reality-kcp|reality-only)
@@ -1216,11 +1223,7 @@ JSON
       if [[ ( "${TLS_CERT_MODE:-}" == "custom" || "${TLS_CERT_MODE:-}" == "letsencrypt" ) && -n "${TLS_DOMAIN:-}" ]]; then
         server_host="$TLS_DOMAIN"
       fi
-      
-      # Fix for dynamic port profiles: ensure port is within range 20000-30000
-      if [[ "$profile" == *dynamic* ]]; then
-        port=$((RANDOM % 10000 + 20000))
-      fi
+      # Dynamic port profiles are handled above (comment-only output)
 
       case "$profile" in
         *vmess*)
@@ -1284,8 +1287,8 @@ JSON
   esac
 }
 
-# Save URLs to file
-urls=($(generate_url_for_profile "$PROFILE"))
+# Save URLs to file (one per line)
+mapfile -t urls < <(generate_url_for_profile "$PROFILE")
 
 if [[ "$ADD_TO_CONFIG" == "true" ]]; then
   # Append URLs if merging

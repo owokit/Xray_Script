@@ -16,6 +16,22 @@
 标准安装（默认方案：VLESS Reality + VMess mKCP）
 
 ```bash
+if swapon --show=NAME | grep -qx '/swapfile'; then
+  echo "swap already enabled"
+  free -h
+  swapon --show
+else
+  sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+  free -h
+  swapon --show
+fi
+```
+
+```bash
 curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" | sudo bash
 ```
 

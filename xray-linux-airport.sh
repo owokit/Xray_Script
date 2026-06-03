@@ -4,7 +4,7 @@ set -euo pipefail
 REALITY_PORT="${REALITY_PORT:-443}"
 VMESS_KCP_PORT="${VMESS_KCP_PORT:-0}"
 UUID="${UUID:-}"
-CORE_VERSION="${CORE_VERSION:-}"
+CORE_VERSION="${CORE_VERSION:-26.1.23}"
 PROXY="${PROXY:-}"
 REALITY_DEST="${REALITY_DEST:-www.microsoft.com:443}"
 REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-www.microsoft.com}"
@@ -263,12 +263,12 @@ build_config() {
       firewall_ports="${REALITY_PORT}/tcp"; display="VLESS Reality"
       if [[ "$PROFILE" == "reality-kcp" ]]; then
         VMESS_KCP_PORT="$(ensure_port "$VMESS_KCP_PORT" udp)"
-        inbounds="$(jq --argjson port "$VMESS_KCP_PORT" --arg id "$UUID" '. + [{port:$port,listen:"0.0.0.0",protocol:"vmess",settings:{clients:[{id:$id,alterId:0,level:0}]},streamSettings:{network:"kcp",kcpSettings:{mtu:1350,tti:20,uplinkCapacity:5,downlinkCapacity:20,congestion:false,readBufferSize:2,writeBufferSize:2},finalmask:{udp:[{type:"header-wechat",settings:{}}]}},tag:"in-vmess-kcp-wechatvideo"}]' <<< "$inbounds")"
+        inbounds="$(jq --argjson port "$VMESS_KCP_PORT" --arg id "$UUID" '. + [{port:$port,listen:"0.0.0.0",protocol:"vmess",settings:{clients:[{id:$id,alterId:0,level:0}]},streamSettings:{network:"kcp",kcpSettings:{mtu:1350,tti:20,uplinkCapacity:5,downlinkCapacity:20,congestion:false,readBufferSize:2,writeBufferSize:2,header:{type:"wechat-video"}}},tag:"in-vmess-kcp-wechatvideo"}]' <<< "$inbounds")"
         firewall_ports="$firewall_ports ${VMESS_KCP_PORT}/udp"; display="VLESS Reality + VMess mKCP"
       fi ;;
     kcp-only)
       VMESS_KCP_PORT="$(ensure_port "$VMESS_KCP_PORT" udp)"
-      inbounds="$(jq -n --argjson port "$VMESS_KCP_PORT" --arg id "$UUID" '[{port:$port,listen:"0.0.0.0",protocol:"vmess",settings:{clients:[{id:$id,alterId:0,level:0}]},streamSettings:{network:"kcp",kcpSettings:{mtu:1350,tti:20,uplinkCapacity:5,downlinkCapacity:20,congestion:false,readBufferSize:2,writeBufferSize:2},finalmask:{udp:[{type:"header-wechat",settings:{}}]}},tag:"in-vmess-kcp-wechatvideo"}]')"
+      inbounds="$(jq -n --argjson port "$VMESS_KCP_PORT" --arg id "$UUID" '[{port:$port,listen:"0.0.0.0",protocol:"vmess",settings:{clients:[{id:$id,alterId:0,level:0}]},streamSettings:{network:"kcp",kcpSettings:{mtu:1350,tti:20,uplinkCapacity:5,downlinkCapacity:20,congestion:false,readBufferSize:2,writeBufferSize:2,header:{type:"wechat-video"}}},tag:"in-vmess-kcp-wechatvideo"}]')"
       firewall_ports="${VMESS_KCP_PORT}/udp"; display="VMess mKCP" ;;
     *) log_error "Unsupported profile: $PROFILE. Supported: reality-kcp, reality-only, kcp-only."; exit 1 ;;
   esac
@@ -319,15 +319,13 @@ urlencode() { local s="$1" out="" c h i; for ((i=0;i<${#s};i++)); do c="${s:i:1}
 detect_public_ip() { curl -s https://api.ipify.org || curl -s https://ifconfig.me || echo '(public IP unknown)'; }
 
 generate_links() {
-  local ip="$1" fm_json fm vmess_json vmess_b64
+  local ip="$1" vmess_json vmess_b64
   : > "$LINKS_FILE"
   if [[ "$PROFILE" == reality-kcp || "$PROFILE" == reality-only ]]; then
     printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&spx=%%2F&type=tcp#xray.owokit.com-VLESS-Reality\n' "$UUID" "$ip" "$REALITY_PORT" "$REALITY_SERVER_NAME" "$reality_pub" "$REALITY_SHORT_ID" >> "$LINKS_FILE"
   fi
   if [[ "$PROFILE" == reality-kcp || "$PROFILE" == kcp-only ]]; then
-    fm_json='{"udp":[{"type":"header-wechat","settings":{}}]}'
-    fm="$(urlencode "$fm_json")"
-    vmess_json="$(jq -n --arg ps 'xray.owokit.com-VMess-mKCP-wechat-video' --arg add "$ip" --arg port "$VMESS_KCP_PORT" --arg id "$UUID" --arg fm "$fm" '{v:"2",ps:$ps,add:$add,port:$port,id:$id,aid:"0",scy:"auto",net:"kcp",type:"wechat-video",fm:$fm,host:"",path:"",tls:"",sni:"",alpn:"",fp:""}')"
+    vmess_json="$(jq -n --arg ps 'xray.owokit.com-VMess-mKCP-wechat-video' --arg add "$ip" --arg port "$VMESS_KCP_PORT" --arg id "$UUID" '{v:"2",ps:$ps,add:$add,port:$port,id:$id,aid:"0",scy:"auto",net:"kcp",type:"wechat-video",host:"",path:"",tls:"",sni:"",alpn:"",fp:""}')"
     vmess_b64="$(printf '%s' "$vmess_json" | base64 -w0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
     printf 'vmess://%s\n' "$vmess_b64" >> "$LINKS_FILE"
   fi

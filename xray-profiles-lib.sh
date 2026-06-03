@@ -298,10 +298,15 @@ generate_reality_kcp_config() {
           "downlinkCapacity": 20,
           "congestion": false,
           "readBufferSize": 2,
-          "writeBufferSize": 2,
-          "header": {
-            "type": "wechat-video"
-          }
+          "writeBufferSize": 2
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "header-wechat",
+              "settings": {}
+            }
+          ]
         }
       },
       "tag": "in-vmess-kcp-wechatvideo"
@@ -1138,10 +1143,15 @@ generate_vmess_mkcp_dynamic_config() {
           "downlinkCapacity": 20,
           "congestion": false,
           "readBufferSize": 2,
-          "writeBufferSize": 2,
-          "header": {
-            "type": "wechat-video"
-          }
+          "writeBufferSize": 2
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "header-wechat",
+              "settings": {}
+            }
+          ]
         }
       },
       "allocate": {
@@ -1269,10 +1279,15 @@ generate_vmess_mkcp_config() {
           "downlinkCapacity": 20,
           "congestion": false,
           "readBufferSize": 2,
-          "writeBufferSize": 2,
-          "header": {
-            "type": "wechat-video"
-          }
+          "writeBufferSize": 2
+        },
+        "finalmask": {
+          "udp": [
+            {
+              "type": "header-wechat",
+              "settings": {}
+            }
+          ]
         }
       },
       "tag": "in-vmess-mkcp"

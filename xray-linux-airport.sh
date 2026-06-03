@@ -135,6 +135,19 @@ log_info()  { printf "%b\n" "${COLOR_INFO}[$(date '+%F %T')] [INFO ] $*${COLOR_R
 log_warn()  { printf "%b\n" "${COLOR_WARN}[$(date '+%F %T')] [WARN ] $*${COLOR_RESET}" >&2; }
 log_error() { printf "%b\n" "${COLOR_ERROR}[$(date '+%F %T')] [ERROR] $*${COLOR_RESET}" >&2; }
 
+urlencode() {
+  local input="$1"
+  local output="" char hex i
+  for ((i = 0; i < ${#input}; i++)); do
+    char="${input:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) output+="$char" ;;
+      *) printf -v hex '%%%02X' "'$char"; output+="$hex" ;;
+    esac
+  done
+  printf '%s' "$output"
+}
+
 require_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     log_error "Please run this script as root (sudo)."
@@ -1203,6 +1216,8 @@ generate_url_for_profile() {
       echo "$url"
       if [[ "$profile" == "reality-kcp" ]]; then
         local vmess_name="xray.owokit.com-VMess-mKCP-wechat-video"
+        local fm_json='{"udp":[{"type":"header-wechat","settings":{}}]}'
+        local fm="$(urlencode "$fm_json")"
         local vmess_json=$(cat <<JSON
 {
   "v": "2",
@@ -1214,6 +1229,7 @@ generate_url_for_profile() {
   "scy": "auto",
   "net": "kcp",
   "type": "wechat-video",
+  "fm": "${fm}",
   "host": "",
   "path": "",
   "tls": "",
@@ -1240,12 +1256,17 @@ JSON
 
       case "$profile" in
         *vmess*)
-          local net="tcp" type="none" path="" host="" tls=""
-          
+          local net="tcp" type="none" path="" host="" tls="" fm=""
+
           if [[ "$profile" == *tls* ]]; then tls="tls"; fi
-          
+
           case "$profile" in
-            *mkcp*) net="kcp"; type="wechat-video" ;;
+            *mkcp*)
+              net="kcp"
+              type="wechat-video"
+              fm_json='{"udp":[{"type":"header-wechat","settings":{}}]}'
+              fm="$(urlencode "$fm_json")"
+              ;;
             *quic*) net="quic"; type="none" ;;
             *ws*)   net="ws"; path="/ws" ;;
             *grpc*) net="grpc"; path="grpc" ;;
@@ -1263,6 +1284,7 @@ JSON
   "scy": "auto",
   "net": "${net}",
   "type": "${type}",
+  "fm": "${fm}",
   "host": "${host}",
   "path": "${path}",
   "tls": "${tls}",

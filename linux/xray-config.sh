@@ -1,4 +1,17 @@
 
+urlencode() {
+  local input="$1"
+  local output="" char hex i
+  for ((i = 0; i < ${#input}; i++)); do
+    char="${input:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) output+="$char" ;;
+      *) printf -v hex '%%%02X' "'$char"; output+="$hex" ;;
+    esac
+  done
+  printf '%s' "$output"
+}
+
 generate_xray_config() {
   local config_path="$1"
   local profile="$2"
@@ -115,6 +128,8 @@ generate_url_for_profile() {
       echo "$url"
       if [[ "$profile" == "reality-kcp" ]]; then
         local vmess_name="xray.owokit.com-VMess-mKCP-wechat-video"
+        local fm_json='{"udp":[{"type":"header-wechat","settings":{}}]}'
+        local fm="$(urlencode "$fm_json")"
         local vmess_json=$(cat <<JSON
 {
   "v": "2",
@@ -126,6 +141,7 @@ generate_url_for_profile() {
   "scy": "auto",
   "net": "kcp",
   "type": "wechat-video",
+  "fm": "${fm}",
   "host": "",
   "path": "",
   "tls": "",
@@ -144,6 +160,23 @@ JSON
       local port="${main_port:-${reality_port:-${vmess_kcp_port}}}"
       case "$profile" in
         *vmess*)
+          local net="tcp" type="none" path="" host="" tls="" fm=""
+
+          if [[ "$profile" == *tls* ]]; then tls="tls"; fi
+
+          case "$profile" in
+            *mkcp*)
+              net="kcp"
+              type="wechat-video"
+              fm_json='{"udp":[{"type":"header-wechat","settings":{}}]}'
+              fm="$(urlencode "$fm_json")"
+              ;;
+            *quic*) net="quic"; type="none" ;;
+            *ws*)   net="ws"; path="/ws" ;;
+            *grpc*) net="grpc"; path="grpc" ;;
+            *h2*)   net="h2"; path="/h2"; host="example.com" ;;
+          esac
+
           local vmess_json=$(cat <<JSON
 {
   "v": "2",
@@ -153,11 +186,12 @@ JSON
   "id": "${uuid}",
   "aid": "0",
   "scy": "auto",
-  "net": "tcp",
-  "type": "none",
+  "net": "${net}",
+  "type": "${type}",
+  "fm": "${fm}",
   "host": "",
   "path": "",
-  "tls": "$([[ "$profile" == *tls* ]] && echo "tls" || echo "")",
+  "tls": "${tls}",
   "sni": "",
   "alpn": "",
   "fp": ""

@@ -252,9 +252,14 @@ function Generate-RealityKcpConfig {
                     congestion       = $false
                     readBufferSize   = 2
                     writeBufferSize  = 2
-                    header = @{
-                        type = "wechat-video"
-                    }
+                }
+                finalmask = @{
+                    udp = @(
+                        @{
+                            type = "header-wechat"
+                            settings = @{}
+                        }
+                    )
                 }
             }
             tag = "in-vmess-kcp-wechatvideo"
@@ -357,9 +362,14 @@ function Generate-VmessMkcpConfig {
                     congestion       = $false
                     readBufferSize   = 2
                     writeBufferSize  = 2
-                    header = @{
-                        type = "wechat-video"
-                    }
+                }
+                finalmask = @{
+                    udp = @(
+                        @{
+                            type = "header-wechat"
+                            settings = @{}
+                        }
+                    )
                 }
             }
             tag = "in-vmess-mkcp"
@@ -468,9 +478,14 @@ function Generate-VmessMkcpDynamicConfig {
                     congestion       = $false
                     readBufferSize   = 2
                     writeBufferSize  = 2
-                    header           = @{
-                        type = "wechat-video"
-                    }
+                }
+                finalmask = @{
+                    udp = @(
+                        @{
+                            type = "header-wechat"
+                            settings = @{}
+                        }
+                    )
                 }
             }
             allocate = @{

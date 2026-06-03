@@ -1030,12 +1030,25 @@ if [[ "$PROFILE" == reality* ]]; then
     exit 1
   fi
 
-  reality_priv="$(printf '%s\n' "$x25519_output" | awk -F':[[:space:]]*' '
-    $1 ~ /^Private[[:space:]]*Key$/ || $1 ~ /^PrivateKey$/ { print $2; exit }
-  ')"
-  reality_pub="$(printf '%s\n' "$x25519_output" | awk -F':[[:space:]]*' '
-    $1 ~ /^Public[[:space:]]*Key$/ || $1 ~ /^Password( \(PublicKey\))?$/ { print $2; exit }
-  ')"
+  reality_priv=""
+  reality_pub=""
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "Private key:"*|"PrivateKey:"*)
+        if [[ -z "$reality_priv" ]]; then
+          reality_priv="${line#*:}"
+          reality_priv="${reality_priv#${reality_priv%%[![:space:]]*}}"
+        fi
+        ;;
+      "Public key:"*|"Password:"*|"Password (PublicKey):"*)
+        if [[ -z "$reality_pub" ]]; then
+          reality_pub="${line#*:}"
+          reality_pub="${reality_pub#${reality_pub%%[![:space:]]*}}"
+        fi
+        ;;
+    esac
+  done <<< "$x25519_output"
 
   if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
     log_error "Could not parse Reality keys from 'xray x25519' output."

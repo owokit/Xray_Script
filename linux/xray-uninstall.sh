@@ -70,6 +70,7 @@ uninstall_xray() {
   fi
 
   cleanup_firewall_rules_from_ports_file "$ports_file"
+  remove_swapfile_if_requested "${REMOVE_SWAP:-false}"
 
   if [[ -d "$BASE_DIR" ]]; then
     rm -rf "$BASE_DIR"
@@ -105,6 +106,7 @@ uninstall_xray_config_only() {
   fi
 
   cleanup_firewall_rules_from_ports_file "$ports_file"
+  remove_swapfile_if_requested "${REMOVE_SWAP:-false}"
 
   rm -f "$config_path" "$links_file" "$ports_file"
   log_info "Removed configuration files under ${BASE_DIR} (config.json, links.txt, ports.env)."

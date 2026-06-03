@@ -35,6 +35,24 @@ log_info()  { printf "[%s] [INFO ] %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$1"; }
 log_warn()  { printf "[%s] [WARN ] %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >&2; }
 log_error() { printf "[%s] [ERROR] %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >&2; }
 
+latest_xray_script_url() {
+  printf 'https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=%s' "$(date +%s)"
+}
+
+fetch_latest_xray_script() {
+  local script_url
+  script_url="$(latest_xray_script_url)"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$script_url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- --header='Cache-Control: no-cache' --header='Pragma: no-cache' "$script_url"
+  else
+    log_error "$(t "闇€瑕?curl 鎴?wget" "curl or wget is required")"
+    exit 1
+  fi
+}
+
 show_menu() {
   echo ""
   echo "========================================"
@@ -139,12 +157,12 @@ view_status() {
 }
 
 delete_entry() {
-  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
+  local script_url="$(latest_xray_script_url)"
   
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --profile delete-config-entry
+    curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$script_url" | sudo bash -s -- --profile delete-config-entry
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --profile delete-config-entry
+    wget -qO- --header='Cache-Control: no-cache' --header='Pragma: no-cache' "$script_url" | sudo bash -s -- --profile delete-config-entry
   else
     log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
     exit 1
@@ -153,12 +171,12 @@ delete_entry() {
 
 update_core() {
   log_info "$(t "更新 Xray 内核..." "Updating Xray core...")"
-  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
+  local script_url="$(latest_xray_script_url)"
   
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --keep-config
+    curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$script_url" | sudo bash -s -- --keep-config
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --keep-config
+    wget -qO- --header='Cache-Control: no-cache' --header='Pragma: no-cache' "$script_url" | sudo bash -s -- --keep-config
   else
     log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
     exit 1
@@ -166,12 +184,12 @@ update_core() {
 }
 
 uninstall_keep_config() {
-  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
+  local script_url="$(latest_xray_script_url)"
   
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --uninstall-config
+    curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$script_url" | sudo bash -s -- --uninstall-config
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --uninstall-config
+    wget -qO- --header='Cache-Control: no-cache' --header='Pragma: no-cache' "$script_url" | sudo bash -s -- --uninstall-config
   else
     log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
     exit 1
@@ -179,12 +197,12 @@ uninstall_keep_config() {
 }
 
 uninstall_all() {
-  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
+  local script_url="$(latest_xray_script_url)"
   
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --uninstall
+    curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$script_url" | sudo bash -s -- --uninstall
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --uninstall
+    wget -qO- --header='Cache-Control: no-cache' --header='Pragma: no-cache' "$script_url" | sudo bash -s -- --uninstall
   else
     log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
     exit 1
@@ -195,12 +213,12 @@ add_profile_direct() {
   local profile="$1"
   log_info "$(t "选择方案: $profile" "Selected profile: $profile")"
   
-  local script_url="https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh"
+  local script_url="$(latest_xray_script_url)"
   
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$script_url" | sudo bash -s -- --add --profile "$profile"
+    curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$script_url" | sudo bash -s -- --add --profile "$profile"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- "$script_url" | sudo bash -s -- --add --profile "$profile"
+    wget -qO- --header='Cache-Control: no-cache' --header='Pragma: no-cache' "$script_url" | sudo bash -s -- --add --profile "$profile"
   else
     log_error "$(t "需要 curl 或 wget" "curl or wget is required")"
     exit 1

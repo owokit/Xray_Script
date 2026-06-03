@@ -16,7 +16,7 @@
 标准安装（默认方案：VLESS Reality + VMess mKCP）
 
 ```bash
-curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" | sudo bash
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" | sudo bash -s -- --profile reality-kcp --enable-swap --swap-size 1G --force-rebuild-config
 ```
 
 **安装过程会自动执行：**
@@ -74,7 +74,7 @@ cd Xray_Script
 chmod +x xray-linux-airport.sh
 
 # 3. 运行脚本（支持所有参数）
-sudo ./xray-linux-airport.sh --profile reality-kcp
+sudo ./xray-linux-airport.sh --profile reality-kcp --enable-swap --swap-size 1G --force-rebuild-config
 ```
 
 *注意：本地运行时，脚本会优先加载当前目录下的 `linux/*.sh` 模块文件，方便调试修改。*
@@ -109,8 +109,11 @@ cd D:\GitHub\Xray_Script
 | `--uuid <uuid>` | `UUID` | 自定义 UUID，默认随机生成 |
 | `--core-version <ver>` | `CORE_VERSION` | 指定 Xray 版本，如 `v1.8.4`，为空则使用最新版本 |
 | `--proxy <url>` | `PROXY` | 下载 Xray 时使用的代理，如 `http://127.0.0.1:1080` |
-| `--reality-dest <host:port>` | `REALITY_DEST` | Reality 伪装目标，默认 `cloudflare.com:443` |
-| `--reality-server-name <domain>` | `REALITY_SERVER_NAME` | Reality SNI 域名，默认 `cloudflare.com` |
+| `--enable-swap` | `ENABLE_SWAP=true` | 默认强制创建 `/swapfile`；`--no-swap` 可关闭 |
+| `--swap-size <size>` | `SWAP_SIZE=1G` | swap 文件大小，默认 `1G` |
+| `--no-swap` | `ENABLE_SWAP=false` | 明确禁止自动创建 swap |
+| `--reality-dest <host:port>` | `REALITY_DEST` | Reality 伪装目标，默认 `www.microsoft.com:443` |
+| `--reality-server-name <domain>` | `REALITY_SERVER_NAME` | Reality SNI 域名，默认 `www.microsoft.com` |
 | `--reality-short-id <hex>` | `REALITY_SHORT_ID` | Reality shortId（2–16 位十六进制），为空则随机生成 |
 | `--base-dir <path>` | `BASE_DIR` | 安装目录，默认 `/opt/xray` |
 | `--tls-cert-mode <mode>` | `TLS_CERT_MODE` | TLS 证书模式：`self-signed` / `letsencrypt` / `custom` |
@@ -121,24 +124,25 @@ cd D:\GitHub\Xray_Script
 | `--add` | `ADD_TO_CONFIG=true` | 将新协议方案追加到现有 config.json（多入站并存） |
 | `--uninstall` | - | 完整卸载 Xray、服务、配置与防火墙规则 |
 | `--uninstall-config` | - | 卸载配置（含服务/防火墙），但保留内核与日志 |
+| `--remove-swap` | - | 搭配 `--uninstall` / `--uninstall-config` 时关闭并删除 `/swapfile` |
 | `--delete-config` | - | 仅删除配置文件与链接/端口记录，不动服务与内核 |
 
 **示例：**
 ```bash
 # 指定端口和 UUID 安装 Reality + KCP（默认方案）
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
-  | sudo bash -s -- --reality-port 443 --uuid "your-uuid-here"
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" \
+  | sudo bash -s -- --reality-port 443 --uuid "your-uuid-here" --enable-swap --swap-size 1G
 
 # 仅更新内核，不改配置
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" \
   | sudo bash -s -- --keep-config
 
 # 添加新协议到现有配置（多入站共存）
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" \
   | sudo bash -s -- --profile vmess-ws-tls --add
 
 # 只重建配置，不重新下载内核
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh \
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" \
   | sudo bash -s -- --rebuild-config-only --profile shadowsocks
 ```
 
@@ -155,8 +159,8 @@ Windows 脚本通过 PowerShell 参数传递：
 | `-UUID` | String | 自定义 UUID，默认随机生成 |
 | `-CoreVersion` | String | 指定 Xray 版本，如 `v1.8.4`，为空则使用最新版本 |
 | `-Proxy` | String | 下载 Xray 时使用的代理，如 `http://127.0.0.1:1080` |
-| `-RealityDest` | String | Reality 伪装目标，默认 `cloudflare.com:443` |
-| `-RealityServerName` | String | Reality SNI 域名，默认 `cloudflare.com` |
+| `-RealityDest` | String | Reality 伪装目标，默认 `www.microsoft.com:443` |
+| `-RealityServerName` | String | Reality SNI 域名，默认 `www.microsoft.com` |
 | `-RealityShortId` | String | Reality shortId（2–16 位十六进制），为空则随机生成 |
 | `-BaseDir` | String | 安装目录，默认 `$env:SystemDrive\xray` |
 | `-KeepConfig` | Switch | 仅更新内核，保留现有配置、防火墙规则与计划任务 |
@@ -195,6 +199,9 @@ irm "https://github.com/owokit/Xray_Script/raw/main/xray-win-airport.ps1" | iex 
 Linux 主脚本已接入完整 Profile 库，交互菜单中可选择以下方案（1–19）：
 
 1. **`reality-kcp`** (默认推荐): VLESS Reality (TCP) + VMess mKCP (UDP)
+   - 默认会创建 `1G` swap；可用 `--no-swap` 关闭
+   - 低于 512 MiB 时会强烈提示不建议启用 VMess mKCP
+   - 默认 Reality 目标为 `www.microsoft.com:443`
 2. **`reality-only`**: 仅 VLESS Reality
 3. **`kcp-only`**: 仅 VMess mKCP
 4. `vmess-tcp` / `vmess-mkcp` / `vmess-quic`

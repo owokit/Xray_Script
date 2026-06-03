@@ -26,6 +26,7 @@ FORCE_REBUILD_CONFIG="${FORCE_REBUILD_CONFIG:-false}"
 UPDATE_CORE_ONLY="false"
 PROFILE="${PROFILE:-}"
 MAIN_PORT="${MAIN_PORT:-0}"
+FORCE_INSTALL_MANAGER="${FORCE_INSTALL_MANAGER:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -1443,7 +1444,7 @@ printf "%s%s%s\n" "${COLOR_SUM_TITLE}" "$(t "===================================
 XRAY_MANAGER_URL="https://github.com/owokit/Xray_Script/raw/main/linux/xray-manager.sh"
 XRAY_CMD_PATH="/usr/local/bin/xray"
 
-if [[ ! -f "$XRAY_CMD_PATH" ]] || [[ "$FORCE_INSTALL_MANAGER" == "true" ]]; then
+if [[ ! -f "$XRAY_CMD_PATH" ]] || [[ "${FORCE_INSTALL_MANAGER:-false}" == "true" ]]; then
   log_info "$(t "安装 xray 管理命令到 $XRAY_CMD_PATH ..." "Installing xray management command to $XRAY_CMD_PATH ...")"
   if curl -fsSL "$XRAY_MANAGER_URL" -o "$XRAY_CMD_PATH" 2>/dev/null; then
     chmod +x "$XRAY_CMD_PATH"

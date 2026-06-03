@@ -16,7 +16,7 @@
 标准安装（默认方案：VLESS Reality + VMess mKCP）
 
 ```bash
-curl -fsSL https://github.com/owokit/Xray_Script/raw/main/xray-linux-airport.sh | sudo bash
+curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/owokit/Xray_Script/main/xray-linux-airport.sh?nocache=$(date +%s)" | sudo bash
 ```
 
 **安装过程会自动执行：**

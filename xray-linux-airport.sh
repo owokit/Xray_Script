@@ -1030,12 +1030,12 @@ if [[ "$PROFILE" == reality* ]]; then
     exit 1
   fi
 
-  reality_priv="$(printf '%s\n' "$x25519_output" | sed -n 's/^Private key:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-  reality_pub="$(printf '%s\n' "$x25519_output" | sed -n 's/^Public key:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-  if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
-    reality_priv="$(printf '%s\n' "$x25519_output" | sed -n 's/^PrivateKey:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-    reality_pub="$(printf '%s\n' "$x25519_output" | sed -n 's/^Password:[[:space:]]*\([^[:space:]]\+\).*/\1/p')"
-  fi
+  reality_priv="$(printf '%s\n' "$x25519_output" | awk -F':[[:space:]]*' '
+    $1 ~ /^Private[[:space:]]*Key$/ || $1 ~ /^PrivateKey$/ { print $2; exit }
+  ')"
+  reality_pub="$(printf '%s\n' "$x25519_output" | awk -F':[[:space:]]*' '
+    $1 ~ /^Public[[:space:]]*Key$/ || $1 ~ /^Password( \(PublicKey\))?$/ { print $2; exit }
+  ')"
 
   if [[ -z "$reality_priv" || -z "$reality_pub" ]]; then
     log_error "Could not parse Reality keys from 'xray x25519' output."
